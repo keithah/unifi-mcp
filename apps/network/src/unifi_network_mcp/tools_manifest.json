@@ -1,5 +1,5 @@
 {
-  "count": 194,
+  "count": 195,
   "generated_by": "scripts/generate_tool_manifest.py",
   "module_map": {
     "unifi_adopt_device": "unifi_network_mcp.tools.devices",
@@ -26,6 +26,7 @@
     "unifi_create_route": "unifi_network_mcp.tools.routing",
     "unifi_create_simple_port_forward": "unifi_network_mcp.tools.port_forwards",
     "unifi_create_simple_qos_rule": "unifi_network_mcp.tools.qos",
+    "unifi_create_traffic_route": "unifi_network_mcp.tools.traffic_routes",
     "unifi_create_usergroup": "unifi_network_mcp.tools.usergroups",
     "unifi_create_voucher": "unifi_network_mcp.tools.hotspot",
     "unifi_create_wlan": "unifi_network_mcp.tools.network",
@@ -2901,6 +2902,144 @@
         }
       },
       "title": "Create Simple QoS Rule"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Create a narrowly scoped Traffic Route (policy-based route). Requires confirmation.\n\nAn explicit matching_target and target network/VPN are required. DOMAIN routes\nrequire at least one domain. Catch-all INTERNET routes are blocked to prevent\naccidental default VPN routing.",
+      "name": "unifi_create_traffic_route",
+      "permission_action": "create",
+      "permission_category": "traffic_routes",
+      "schema": {
+        "input": {
+          "properties": {
+            "confirm": {
+              "description": "When true, creates; when false, previews",
+              "type": "boolean"
+            },
+            "description": {
+              "description": "Human-readable route name (maximum 128 characters)",
+              "type": "string"
+            },
+            "domains": {
+              "description": "DOMAIN entries, e.g. [{\"domain\": \"youtube.com\"}]",
+              "type": "array"
+            },
+            "enabled": {
+              "description": "Create enabled",
+              "type": "boolean"
+            },
+            "ip_addresses": {
+              "description": "IP route entries",
+              "type": "array"
+            },
+            "ip_ranges": {
+              "description": "IP-range route entries",
+              "type": "array"
+            },
+            "kill_switch_enabled": {
+              "description": "Block matched traffic if target VPN/network is unavailable",
+              "type": "boolean"
+            },
+            "matching_target": {
+              "description": "Destination match type: DOMAIN, IP, REGION, or INTERNET",
+              "type": "string"
+            },
+            "network_id": {
+              "description": "Target network or VPN client ID",
+              "type": "string"
+            },
+            "regions": {
+              "description": "REGION route country codes",
+              "type": "array"
+            },
+            "target_devices": {
+              "description": "Source targets: CLIENT, NETWORK, or ALL_CLIENTS",
+              "type": "array"
+            }
+          },
+          "required": [
+            "description",
+            "matching_target",
+            "network_id"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "description": "Structured view of the existing UniFi MCP tool response contract.",
+          "properties": {
+            "data": {
+              "anyOf": [
+                {},
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Successful result payload.",
+              "title": "Data"
+            },
+            "error": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Actionable error message for handled failures.",
+              "title": "Error"
+            },
+            "preview": {
+              "anyOf": [
+                {},
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Mutation preview payload returned before confirmation.",
+              "title": "Preview"
+            },
+            "requires_confirmation": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "True when a mutation preview requires caller confirmation.",
+              "title": "Requires Confirmation"
+            },
+            "success": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "True when the tool call succeeded; false for handled errors.",
+              "title": "Success"
+            }
+          },
+          "title": "UniFiToolResponse",
+          "type": "object"
+        }
+      },
+      "title": "Create Traffic Route"
     },
     {
       "annotations": {

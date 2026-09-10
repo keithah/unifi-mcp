@@ -38,7 +38,79 @@ def _mock_manager():
     mgr = MagicMock()
     mgr.get_traffic_route_details = AsyncMock(return_value=copy.deepcopy(SAMPLE_ROUTE))
     mgr.update_traffic_route = AsyncMock(return_value=True)
+    mgr.create_traffic_route = AsyncMock(return_value={"_id": "route-new", "description": "YouTube via VPN"})
     return mgr
+
+
+class TestCreateTrafficRoute:
+    @pytest.mark.asyncio
+    async def test_domain_route_preview_does_not_mutate(self):
+        mgr = _mock_manager()
+        with patch("unifi_network_mcp.tools.traffic_routes.traffic_route_manager", mgr):
+            from unifi_network_mcp.tools.traffic_routes import create_traffic_route
+
+            result = await create_traffic_route(
+                description="YouTube via VPN",
+                matching_target="DOMAIN",
+                network_id="vpn-albania",
+                domains=[{"domain": "youtube.com", "ports": [], "port_ranges": []}],
+            )
+
+        assert result["success"] is True
+        assert result["requires_confirmation"] is True
+        assert result["preview"]["will_create"]["matching_target"] == "DOMAIN"
+        mgr.create_traffic_route.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_domain_route_confirm_posts_normalized_payload(self):
+        mgr = _mock_manager()
+        with patch("unifi_network_mcp.tools.traffic_routes.traffic_route_manager", mgr):
+            from unifi_network_mcp.tools.traffic_routes import create_traffic_route
+
+            result = await create_traffic_route(
+                description="YouTube via VPN",
+                matching_target="DOMAIN",
+                network_id="vpn-albania",
+                domains=[{"domain": "youtube.com"}],
+                target_devices=[{"type": "ALL_CLIENTS"}],
+                kill_switch_enabled=True,
+                confirm=True,
+            )
+
+        assert result["success"] is True
+        assert result["route_id"] == "route-new"
+        mgr.create_traffic_route.assert_awaited_once_with(
+            {
+                "description": "YouTube via VPN",
+                "matching_target": "DOMAIN",
+                "network_id": "vpn-albania",
+                "domains": [{"domain": "youtube.com", "ports": [], "port_ranges": []}],
+                "target_devices": [{"type": "ALL_CLIENTS"}],
+                "kill_switch_enabled": True,
+                "enabled": True,
+                "ip_addresses": [],
+                "ip_ranges": [],
+                "regions": [],
+                "next_hop": "",
+            }
+        )
+
+    @pytest.mark.asyncio
+    async def test_domain_route_rejects_missing_domains(self):
+        mgr = _mock_manager()
+        with patch("unifi_network_mcp.tools.traffic_routes.traffic_route_manager", mgr):
+            from unifi_network_mcp.tools.traffic_routes import create_traffic_route
+
+            result = await create_traffic_route(
+                description="Unsafe route",
+                matching_target="DOMAIN",
+                network_id="vpn-albania",
+                confirm=True,
+            )
+
+        assert result["success"] is False
+        assert "domains" in result["error"]
+        mgr.create_traffic_route.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

@@ -76,6 +76,18 @@ class TrafficRouteManager:
             raise UniFiNotFoundError("traffic_route", route_id)
         return route
 
+    async def create_traffic_route(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a traffic route using POST /trafficroutes (V2 API)."""
+        api_request = ApiRequestV2(method="post", path="/trafficroutes", data=payload)
+        response = await self._connection.request(api_request)
+        result = response.get("data", response) if isinstance(response, dict) else response
+        if isinstance(result, list):
+            result = result[0] if result else {}
+        if not isinstance(result, dict):
+            raise ValueError("Controller returned an invalid traffic route create response")
+        self._connection._invalidate_cache(f"{CACHE_PREFIX_TRAFFIC_ROUTES}_{self._connection.site}")
+        return result
+
     async def update_traffic_route(self, route_id: str, enabled: Optional[bool] = None, **kwargs) -> bool:
         """Update a traffic route.
 

@@ -11,11 +11,109 @@ from typing import Annotated, Any, Dict, List, Optional
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from unifi_core.confirmation import toggle_preview, update_preview
+from unifi_core.confirmation import create_preview, toggle_preview, update_preview
 from unifi_core.exceptions import UniFiNotFoundError
 from unifi_network_mcp.runtime import server, traffic_route_manager
 
 logger = logging.getLogger(__name__)
+
+
+@server.tool(
+    name="unifi_create_traffic_route",
+    description="""Create a narrowly scoped Traffic Route (policy-based route). Requires confirmation.
+
+An explicit matching_target and target network/VPN are required. DOMAIN routes
+require at least one domain. Catch-all INTERNET routes are blocked to prevent
+accidental default VPN routing.""",
+    permission_category="traffic_routes",
+    permission_action="create",
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False),
+)
+async def create_traffic_route(
+    description: Annotated[str, Field(description="Human-readable route name (maximum 128 characters)")],
+    matching_target: Annotated[str, Field(description="Destination match type: DOMAIN, IP, REGION, or INTERNET")],
+    network_id: Annotated[str, Field(description="Target network or VPN client ID")],
+    domains: Annotated[
+        Optional[List[Dict[str, Any]]], Field(description='DOMAIN entries, e.g. [{"domain": "youtube.com"}]')
+    ] = None,
+    ip_addresses: Annotated[Optional[List[Dict[str, Any]]], Field(description="IP route entries")] = None,
+    ip_ranges: Annotated[Optional[List[Dict[str, Any]]], Field(description="IP-range route entries")] = None,
+    regions: Annotated[Optional[List[str]], Field(description="REGION route country codes")] = None,
+    target_devices: Annotated[
+        Optional[List[Dict[str, Any]]], Field(description="Source targets: CLIENT, NETWORK, or ALL_CLIENTS")
+    ] = None,
+    kill_switch_enabled: Annotated[
+        bool, Field(description="Block matched traffic if target VPN/network is unavailable")
+    ] = False,
+    enabled: Annotated[bool, Field(description="Create enabled")] = True,
+    confirm: Annotated[bool, Field(description="When true, creates; when false, previews")] = False,
+) -> Dict[str, Any]:
+    """Create a validated V2 Traffic Route with an explicit confirmation gate."""
+    target = matching_target.upper()
+    if not description or len(description) > 128:
+        return {"success": False, "error": "description is required and must be at most 128 characters."}
+    if target not in {"DOMAIN", "IP", "REGION", "INTERNET"}:
+        return {"success": False, "error": "matching_target must be DOMAIN, IP, REGION, or INTERNET."}
+    if not network_id:
+        return {
+            "success": False,
+            "error": "network_id is required; a Traffic Route must explicitly name its target network or VPN.",
+        }
+    if target == "DOMAIN" and not domains:
+        return {"success": False, "error": "DOMAIN Traffic Routes require a non-empty domains list."}
+    if target == "IP" and not (ip_addresses or ip_ranges):
+        return {"success": False, "error": "IP Traffic Routes require ip_addresses or ip_ranges."}
+    if target == "REGION" and not regions:
+        return {"success": False, "error": "REGION Traffic Routes require a non-empty regions list."}
+    if target == "INTERNET":
+        return {
+            "success": False,
+            "error": "INTERNET Traffic Routes are blocked to prevent accidental catch-all VPN routing.",
+        }
+    for field, value in (
+        ("domains", domains),
+        ("ip_addresses", ip_addresses),
+        ("ip_ranges", ip_ranges),
+        ("regions", regions),
+        ("target_devices", target_devices),
+    ):
+        if value is not None and not isinstance(value, list):
+            return {"success": False, "error": f"{field} must be a list."}
+    if domains and any(not isinstance(item, dict) or not item.get("domain") for item in domains):
+        return {"success": False, "error": "Each domains entry must contain a non-empty domain."}
+    if target_devices and any(not isinstance(item, dict) or not item.get("type") for item in target_devices):
+        return {"success": False, "error": "Each target_devices entry must contain type."}
+
+    normalized_domains = [
+        {"domain": item["domain"], "ports": item.get("ports", []), "port_ranges": item.get("port_ranges", [])}
+        for item in (domains or [])
+    ]
+    payload = {
+        "description": description,
+        "matching_target": target,
+        "network_id": network_id,
+        "domains": normalized_domains,
+        "target_devices": target_devices or [{"type": "ALL_CLIENTS"}],
+        "kill_switch_enabled": kill_switch_enabled,
+        "enabled": enabled,
+        "ip_addresses": ip_addresses or [],
+        "ip_ranges": ip_ranges or [],
+        "regions": regions or [],
+        "next_hop": "",
+    }
+    if not confirm:
+        return create_preview("traffic_route", payload, description)
+    try:
+        created = await traffic_route_manager.create_traffic_route(payload)
+        return {
+            "success": True,
+            "route_id": created.get("_id"),
+            "details": created,
+            "message": f"Traffic route '{description}' created.",
+        }
+    except Exception as e:
+        logger.error("Error creating traffic route: %s", e, exc_info=True)
+        return {"success": False, "error": f"Failed to create traffic route: {e}"}
 
 
 @server.tool(
