@@ -5,16 +5,19 @@ domain-based routing, and other advanced routing scenarios.
 """
 
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 from aiounifi.models.api import ApiRequestV2
 
 from unifi_core.exceptions import UniFiNotFoundError
 from unifi_core.network.managers.connection_manager import ConnectionManager
+from unifi_core.network.managers.network_manager import NetworkManager
 
 logger = logging.getLogger("unifi-network-mcp")
 
 CACHE_PREFIX_TRAFFIC_ROUTES = "traffic_routes"
+_CLIENT_MAC_PATTERN = re.compile(r"^[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}$")
 
 
 class TrafficRouteManager:
@@ -25,13 +28,50 @@ class TrafficRouteManager:
     specific networks (like VPNs).
     """
 
-    def __init__(self, connection_manager: ConnectionManager):
+    def __init__(
+        self,
+        connection_manager: ConnectionManager,
+        network_manager: Optional[NetworkManager] = None,
+    ):
         """Initialize the Traffic Route Manager.
 
         Args:
             connection_manager: The shared ConnectionManager instance.
+            network_manager: The shared NetworkManager instance used to verify
+                Internet-route target networks.
         """
         self._connection = connection_manager
+        self._network_manager = network_manager or NetworkManager(connection_manager)
+
+    async def validate_internet_route_target(self, target_devices: Any, network_id: Any) -> None:
+        """Require an Internet route to target one explicit client via a WAN."""
+        if not isinstance(target_devices, list) or len(target_devices) != 1:
+            raise ValueError("INTERNET Traffic Routes require exactly one explicit CLIENT target")
+
+        target = target_devices[0]
+        if not isinstance(target, dict) or target.get("type") != "CLIENT":
+            raise ValueError("INTERNET Traffic Routes require exactly one explicit CLIENT target")
+
+        client_mac = target.get("client_mac")
+        if not isinstance(client_mac, str) or not _CLIENT_MAC_PATTERN.fullmatch(client_mac):
+            raise ValueError("INTERNET Traffic Routes require a valid client MAC address")
+
+        if not isinstance(network_id, str) or not network_id:
+            raise ValueError("INTERNET Traffic Routes require a target WAN network")
+
+        target_network = await self._network_manager.get_network_details(network_id)
+        if not isinstance(target_network, dict) or str(target_network.get("purpose", "")).lower() != "wan":
+            raise ValueError("INTERNET Traffic Routes can target only a verified WAN network")
+
+    async def _validate_enabled_internet_route(self, payload: Dict[str, Any]) -> None:
+        """Validate an active Internet route before it reaches the controller."""
+        matching_target = payload.get("matching_target")
+        if (
+            isinstance(matching_target, str)
+            and matching_target.upper() == "INTERNET"
+            and payload.get("enabled") is not False
+        ):
+            await self.validate_internet_route_target(payload.get("target_devices"), payload.get("network_id"))
 
     async def get_traffic_routes(self) -> List[Dict[str, Any]]:
         """Get all traffic routes for the current site.
@@ -61,7 +101,7 @@ class TrafficRouteManager:
             self._connection._update_cache(cache_key, routes)
             return routes
         except Exception as e:
-            logger.error("Error getting traffic routes: %s", e)
+            logger.error("Traffic route list failed (%s)", type(e).__name__)
             raise
 
     async def get_traffic_route_details(self, route_id: str) -> Dict[str, Any]:
@@ -78,6 +118,7 @@ class TrafficRouteManager:
 
     async def create_traffic_route(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Create a traffic route using POST /trafficroutes (V2 API)."""
+        await self._validate_enabled_internet_route(payload)
         api_request = ApiRequestV2(method="post", path="/trafficroutes", data=payload)
         response = await self._connection.request(api_request)
         result = response.get("data", response) if isinstance(response, dict) else response
@@ -117,6 +158,8 @@ class TrafficRouteManager:
                 if value is not None:
                     payload[key] = value
 
+            await self._validate_enabled_internet_route(payload)
+
             api_request = ApiRequestV2(
                 method="put",
                 path=f"/trafficroutes/{route_id}",
@@ -124,7 +167,7 @@ class TrafficRouteManager:
             )
             await self._connection.request(api_request)
 
-            logger.info("Updated traffic route %s", route_id)
+            logger.info("Traffic route updated")
 
             # Invalidate cache
             self._connection._invalidate_cache(f"{CACHE_PREFIX_TRAFFIC_ROUTES}_{self._connection.site}")
@@ -132,7 +175,7 @@ class TrafficRouteManager:
             return True
 
         except Exception as e:
-            logger.error("Error updating traffic route %s: %s", route_id, e, exc_info=True)
+            logger.error("Traffic route update failed (%s)", type(e).__name__)
             raise
 
     async def toggle_traffic_route(self, route_id: str) -> bool:
@@ -165,6 +208,8 @@ class TrafficRouteManager:
             payload: Dict[str, Any] = current.copy()
             payload["kill_switch_enabled"] = enabled
 
+            await self._validate_enabled_internet_route(payload)
+
             api_request = ApiRequestV2(
                 method="put",
                 path=f"/trafficroutes/{route_id}",
@@ -172,17 +217,12 @@ class TrafficRouteManager:
             )
             await self._connection.request(api_request)
 
-            logger.info("Traffic route %s kill switch %s", route_id, "enabled" if enabled else "disabled")
+            logger.info("Traffic route kill switch updated")
 
             self._connection._invalidate_cache(f"{CACHE_PREFIX_TRAFFIC_ROUTES}_{self._connection.site}")
 
             return True
 
         except Exception as e:
-            logger.error(
-                "Error updating kill switch for traffic route %s: %s",
-                route_id,
-                e,
-                exc_info=True,
-            )
+            logger.error("Traffic route kill switch update failed (%s)", type(e).__name__)
             raise
