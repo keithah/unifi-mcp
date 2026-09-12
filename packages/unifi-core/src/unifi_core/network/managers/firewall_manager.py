@@ -15,7 +15,11 @@ from unifi_core.exceptions import UniFiNotFoundError, UniFiOperationError
 from unifi_core.merge import deep_merge
 from unifi_core.network.managers.connection_manager import ConnectionManager
 from unifi_core.network.managers.network_manager import NetworkManager
-from unifi_core.network.managers.traffic_route_manager import TrafficRouteManager
+from unifi_core.network.managers.traffic_route_manager import (
+    CACHE_PREFIX_LEGACY_TRAFFIC_ROUTES,
+    TrafficRouteManager,
+    invalidate_traffic_route_caches,
+)
 from unifi_core.network.models.firewall import (
     RETIRABLE_SELECTORS,
     _normalize_endpoint_macs,
@@ -31,10 +35,6 @@ logger = logging.getLogger("unifi-network-mcp")
 CACHE_PREFIX_FIREWALL_POLICIES = "firewall_policies"
 CACHE_PREFIX_FIREWALL_POLICY_ORDERING = "firewall_policy_ordering"
 CACHE_PREFIX_INTEGRATION_FIREWALL_ZONES = "integration_firewall_zones"
-# Legacy route reads cache aiounifi TrafficRoute wrappers. The guarded
-# TrafficRouteManager caches controller dictionaries, so the representations
-# must never share a key.
-CACHE_PREFIX_LEGACY_TRAFFIC_ROUTES = "legacy_traffic_routes"
 CACHE_PREFIX_PORT_FORWARDS = "port_forwards"
 CACHE_PREFIX_FIREWALL_ZONES = "firewall_zones"
 CACHE_PREFIX_FIREWALL_GROUPS = "firewall_groups"
@@ -623,8 +623,7 @@ class FirewallManager:
             api_request = ApiRequestV2(method="delete", path=f"/trafficroutes/{route_id}")
             await self._connection.request(api_request)
 
-            cache_key = f"{CACHE_PREFIX_LEGACY_TRAFFIC_ROUTES}_{self._connection.site}"
-            self._connection._invalidate_cache(cache_key)
+            invalidate_traffic_route_caches(self._connection)
             logger.info("Traffic route deleted")
             return True
         except Exception as e:

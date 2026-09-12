@@ -17,7 +17,17 @@ from unifi_core.network.managers.network_manager import NetworkManager
 logger = logging.getLogger("unifi-network-mcp")
 
 CACHE_PREFIX_TRAFFIC_ROUTES = "traffic_routes"
+# Legacy FirewallManager reads cache aiounifi TrafficRoute wrappers, while this
+# manager caches controller dictionaries. Keep the representations separate,
+# but invalidate them together after every traffic-route mutation.
+CACHE_PREFIX_LEGACY_TRAFFIC_ROUTES = "legacy_traffic_routes"
 _CLIENT_MAC_PATTERN = re.compile(r"^[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}$")
+
+
+def invalidate_traffic_route_caches(connection: ConnectionManager) -> None:
+    """Clear every cached representation of traffic routes for the active site."""
+    for cache_prefix in (CACHE_PREFIX_TRAFFIC_ROUTES, CACHE_PREFIX_LEGACY_TRAFFIC_ROUTES):
+        connection._invalidate_cache(f"{cache_prefix}_{connection.site}")
 
 
 class TrafficRouteManager:
@@ -152,7 +162,7 @@ class TrafficRouteManager:
             result = result[0] if result else {}
         if not isinstance(result, dict):
             raise ValueError("Controller returned an invalid traffic route create response")
-        self._connection._invalidate_cache(f"{CACHE_PREFIX_TRAFFIC_ROUTES}_{self._connection.site}")
+        invalidate_traffic_route_caches(self._connection)
         return result
 
     async def update_traffic_route(self, route_id: str, enabled: Optional[bool] = None, **kwargs) -> bool:
@@ -196,7 +206,7 @@ class TrafficRouteManager:
             logger.info("Traffic route updated")
 
             # Invalidate cache
-            self._connection._invalidate_cache(f"{CACHE_PREFIX_TRAFFIC_ROUTES}_{self._connection.site}")
+            invalidate_traffic_route_caches(self._connection)
 
             return True
 
@@ -245,7 +255,7 @@ class TrafficRouteManager:
 
             logger.info("Traffic route kill switch updated")
 
-            self._connection._invalidate_cache(f"{CACHE_PREFIX_TRAFFIC_ROUTES}_{self._connection.site}")
+            invalidate_traffic_route_caches(self._connection)
 
             return True
 

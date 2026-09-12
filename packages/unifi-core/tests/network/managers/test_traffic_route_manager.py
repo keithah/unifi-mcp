@@ -18,6 +18,24 @@ def _manager(*, purpose: str = "wan") -> tuple[TrafficRouteManager, MagicMock, M
     return manager, connection, network_manager
 
 
+def _seed_both_traffic_route_caches(connection: MagicMock) -> dict[str, object]:
+    """Populate the guarded and legacy route caches with distinct representations."""
+    cache: dict[str, object] = {
+        f"traffic_routes_{connection.site}": [{"_id": "guarded-route"}],
+        f"legacy_traffic_routes_{connection.site}": ["legacy-route-wrapper"],
+    }
+    connection.get_cached.side_effect = cache.get
+    connection._update_cache.side_effect = cache.__setitem__
+
+    def invalidate(prefix: str) -> None:
+        for key in list(cache):
+            if key.startswith(prefix):
+                del cache[key]
+
+    connection._invalidate_cache.side_effect = invalidate
+    return cache
+
+
 @pytest.mark.asyncio
 async def test_create_rejects_internet_route_with_non_wan_target() -> None:
     manager, connection, network_manager = _manager(purpose="remote-user-vpn")
@@ -287,3 +305,49 @@ async def test_create_allows_valid_single_client_wan_route() -> None:
     assert created == {"_id": "route-new"}
     network_manager.get_network_details.assert_awaited_once_with("wan-target", force_refresh=True)
     connection.request.assert_awaited_once()
+
+
+class TestTrafficRouteCacheCoherence:
+    """Every mutation clears both dictionary and legacy-wrapper route caches."""
+
+    @pytest.mark.asyncio
+    async def test_create_invalidates_both_route_cache_representations(self) -> None:
+        manager, connection, _ = _manager()
+        cache = _seed_both_traffic_route_caches(connection)
+
+        await manager.create_traffic_route({"matching_target": "DOMAIN"})
+
+        assert cache == {}
+
+    @pytest.mark.asyncio
+    async def test_update_invalidates_both_route_cache_representations(self) -> None:
+        manager, connection, _ = _manager()
+        cache = _seed_both_traffic_route_caches(connection)
+        route = {"_id": "route-update", "matching_target": "DOMAIN", "enabled": True}
+        connection.request = AsyncMock(side_effect=[{"data": [route]}, {}])
+
+        assert await manager.update_traffic_route("route-update", description="Updated") is True
+
+        assert cache == {}
+
+    @pytest.mark.asyncio
+    async def test_toggle_invalidates_both_route_cache_representations(self) -> None:
+        manager, connection, _ = _manager()
+        cache = _seed_both_traffic_route_caches(connection)
+        route = {"_id": "route-toggle", "matching_target": "DOMAIN", "enabled": True}
+        connection.request = AsyncMock(side_effect=[{"data": [route]}, {"data": [route]}, {}])
+
+        assert await manager.toggle_traffic_route("route-toggle") is True
+
+        assert cache == {}
+
+    @pytest.mark.asyncio
+    async def test_kill_switch_update_invalidates_both_route_cache_representations(self) -> None:
+        manager, connection, _ = _manager()
+        cache = _seed_both_traffic_route_caches(connection)
+        route = {"_id": "route-kill-switch", "matching_target": "DOMAIN", "enabled": True}
+        connection.request = AsyncMock(side_effect=[{"data": [route]}, {}])
+
+        assert await manager.update_kill_switch("route-kill-switch", enabled=True) is True
+
+        assert cache == {}

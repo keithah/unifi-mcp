@@ -190,6 +190,20 @@ class TestLegacyTrafficRouteSafety:
         assert all(route_id not in repr(record.args) for record in caplog.records)
 
     @pytest.mark.asyncio
+    async def test_delete_invalidates_both_route_cache_representations(self, firewall_manager, mock_connection):
+        cache = {
+            "traffic_routes_default": [{"_id": "guarded-route"}],
+            "legacy_traffic_routes_default": ["legacy-route-wrapper"],
+        }
+        mock_connection._invalidate_cache.side_effect = lambda prefix: [
+            cache.pop(key) for key in list(cache) if key.startswith(prefix)
+        ]
+
+        assert await firewall_manager.delete_traffic_route("route-delete") is True
+
+        assert cache == {}
+
+    @pytest.mark.asyncio
     async def test_legacy_listing_does_not_poison_guarded_route_lookup(self, firewall_manager, mock_connection):
         """Legacy wrappers and guarded dictionaries must never share a cache entry."""
         cache = {}
