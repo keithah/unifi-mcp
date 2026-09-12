@@ -10,13 +10,48 @@ import re
 from typing import Annotated, Any, Dict, List, Optional
 
 from mcp.types import ToolAnnotations
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from unifi_core.confirmation import create_preview, toggle_preview, update_preview
 from unifi_core.exceptions import UniFiNotFoundError
+from unifi_core.network.models.traffic_routes import TrafficRoute, to_controller_update
 from unifi_network_mcp.runtime import network_manager, server, traffic_route_manager
 
 logger = logging.getLogger(__name__)
+_CLIENT_MAC_PATTERN = re.compile(r"[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}")
+
+
+async def _validate_internet_route_target(target_devices: Any, network_id: str) -> Optional[Dict[str, Any]]:
+    """Return a validation error unless an INTERNET route is a single-client WAN route."""
+    if (
+        not isinstance(target_devices, list)
+        or len(target_devices) != 1
+        or not isinstance(target_devices[0], dict)
+        or target_devices[0].get("type") != "CLIENT"
+    ):
+        return {
+            "success": False,
+            "error": "INTERNET Traffic Routes require a single CLIENT target_devices entry.",
+        }
+    client_mac = target_devices[0].get("client_mac")
+    if not isinstance(client_mac, str) or not _CLIENT_MAC_PATTERN.fullmatch(client_mac):
+        return {
+            "success": False,
+            "error": "INTERNET Traffic Routes require a valid client_mac for their CLIENT target.",
+        }
+    try:
+        target_network = await network_manager.get_network_details(network_id)
+    except UniFiNotFoundError:
+        return {"success": False, "error": "Target network was not found."}
+    except Exception as e:
+        logger.error("Unable to verify INTERNET Traffic Route target (%s)", type(e).__name__)
+        return {"success": False, "error": "Unable to verify target network."}
+    if target_network.get("purpose") != "wan":
+        return {
+            "success": False,
+            "error": "INTERNET Traffic Routes are allowed only for a WAN network.",
+        }
+    return None
 
 
 @server.tool(
@@ -67,34 +102,9 @@ async def create_traffic_route(
     if target == "REGION" and not regions:
         return {"success": False, "error": "REGION Traffic Routes require a non-empty regions list."}
     if target == "INTERNET":
-        if (
-            not isinstance(target_devices, list)
-            or len(target_devices) != 1
-            or not isinstance(target_devices[0], dict)
-            or target_devices[0].get("type") != "CLIENT"
-        ):
-            return {
-                "success": False,
-                "error": "INTERNET Traffic Routes require a single CLIENT target_devices entry.",
-            }
-        client_mac = target_devices[0].get("client_mac")
-        if not isinstance(client_mac, str) or not re.fullmatch(r"[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}", client_mac):
-            return {
-                "success": False,
-                "error": "INTERNET Traffic Routes require a valid client_mac for their CLIENT target.",
-            }
-        try:
-            target_network = await network_manager.get_network_details(network_id)
-        except UniFiNotFoundError as e:
-            return {"success": False, "error": str(e)}
-        except Exception as e:
-            logger.error("Unable to verify INTERNET Traffic Route target %s: %s", network_id, e, exc_info=True)
-            return {"success": False, "error": f"Unable to verify target network: {e}"}
-        if target_network.get("purpose") != "wan":
-            return {
-                "success": False,
-                "error": "INTERNET Traffic Routes are allowed only for a WAN network.",
-            }
+        validation_error = await _validate_internet_route_target(target_devices, network_id)
+        if validation_error:
+            return validation_error
     for field, value in (
         ("domains", domains),
         ("ip_addresses", ip_addresses),
@@ -137,8 +147,11 @@ async def create_traffic_route(
             "message": f"Traffic route '{description}' created.",
         }
     except Exception as e:
-        logger.error("Error creating traffic route: %s", e, exc_info=True)
-        return {"success": False, "error": f"Failed to create traffic route: {e}"}
+        logger.error("Traffic route create failed (%s)", type(e).__name__)
+        return {
+            "success": False,
+            "error": "Failed to create traffic route. Check controller connectivity and permissions.",
+        }
 
 
 @server.tool(
@@ -180,8 +193,11 @@ async def list_traffic_routes() -> Dict[str, Any]:
             "traffic_routes": formatted_routes,
         }
     except Exception as e:
-        logger.error("Error listing traffic routes: %s", e, exc_info=True)
-        return {"success": False, "error": f"Failed to list traffic routes: {e}"}
+        logger.error("Traffic route list failed (%s)", type(e).__name__)
+        return {
+            "success": False,
+            "error": "Failed to list traffic routes. Check controller connectivity and permissions.",
+        }
 
 
 @server.tool(
@@ -204,16 +220,21 @@ async def get_traffic_route_details(
             "route_id": route_id,
             "details": route,
         }
-    except UniFiNotFoundError as e:
-        return {"success": False, "error": str(e)}
+    except UniFiNotFoundError:
+        return {"success": False, "error": "Traffic route was not found."}
     except Exception as e:
-        logger.error("Error getting traffic route details: %s", e, exc_info=True)
-        return {"success": False, "error": f"Failed to get traffic route details: {e}"}
+        logger.error("Traffic route detail lookup failed (%s)", type(e).__name__)
+        return {
+            "success": False,
+            "error": "Failed to get traffic route details. Check controller connectivity and permissions.",
+        }
 
 
 @server.tool(
     name="unifi_update_traffic_route",
     description="""Update a traffic route's settings.
+
+Pass only the fields you want to change — current values are automatically preserved.
 
 Toggle fields:
 - enabled: Enable or disable the traffic route
@@ -228,6 +249,7 @@ first with unifi_get_traffic_route_details, then send the full desired value):
 - ip_addresses: List of IP/subnet objects (for matching_target=IP routes).
 - ip_ranges: List of IP-range objects.
 - regions: List of ISO country/region codes, e.g. ["US", "CA"].
+- network_id: Replace the target network/VPN. INTERNET routes require a verified WAN target.
 - next_hop: Next-hop IP address (string) for static next-hop routes.
 
 At least one field must be provided.""",
@@ -278,6 +300,10 @@ async def update_traffic_route(
         Optional[List[str]],
         Field(description='Replace the route\'s regions. List of ISO country/region codes, e.g. ["US", "CA"].'),
     ] = None,
+    network_id: Annotated[
+        Optional[str],
+        Field(description="Replace the target network or VPN. INTERNET routes require a verified WAN network."),
+    ] = None,
     next_hop: Annotated[
         Optional[str],
         Field(description="Next-hop IP address (string) for static next-hop routes."),
@@ -296,6 +322,7 @@ async def update_traffic_route(
         "ip_addresses": ip_addresses,
         "ip_ranges": ip_ranges,
         "regions": regions,
+        "network_id": network_id,
         "next_hop": next_hop,
     }
     updates: Dict[str, Any] = {k: v for k, v in field_values.items() if v is not None}
@@ -305,7 +332,7 @@ async def update_traffic_route(
             "success": False,
             "error": (
                 "At least one updatable field must be provided: enabled, kill_switch_enabled, "
-                "target_devices, domains, ip_addresses, ip_ranges, regions, next_hop."
+                "target_devices, domains, ip_addresses, ip_ranges, regions, network_id, next_hop."
             ),
         }
 
@@ -325,9 +352,20 @@ async def update_traffic_route(
             }
 
     try:
+        updates = to_controller_update(TrafficRoute.model_validate(updates).model_dump(exclude_none=True))
+    except ValidationError:
+        return {"success": False, "error": "One or more traffic route update fields are invalid."}
+
+    try:
         # Fetch current route so the preview can show what is being replaced.
         current = await traffic_route_manager.get_traffic_route_details(route_id)
         route_name = current.get("description", route_id)
+
+        if "network_id" in updates and current.get("matching_target") == "INTERNET":
+            route_targets = updates.get("target_devices", current.get("target_devices"))
+            validation_error = await _validate_internet_route_target(route_targets, updates["network_id"])
+            if validation_error:
+                return validation_error
 
         if not confirm:
             return update_preview(
@@ -346,13 +384,16 @@ async def update_traffic_route(
             }
         return {
             "success": False,
-            "error": f"Failed to update traffic route {route_id}.",
+            "error": "Failed to update traffic route.",
         }
-    except UniFiNotFoundError as e:
-        return {"success": False, "error": str(e)}
+    except UniFiNotFoundError:
+        return {"success": False, "error": "Traffic route was not found."}
     except Exception as e:
-        logger.error("Error updating traffic route: %s", e, exc_info=True)
-        return {"success": False, "error": f"Failed to update traffic route: {e}"}
+        logger.error("Traffic route update failed (%s)", type(e).__name__)
+        return {
+            "success": False,
+            "error": "Failed to update traffic route. Check controller connectivity and permissions.",
+        }
 
 
 @server.tool(
@@ -377,7 +418,7 @@ async def toggle_traffic_route(
         # Get current state for preview/message
         current = await traffic_route_manager.get_traffic_route_details(route_id)
         if not current:
-            return {"success": False, "error": f"Traffic route '{route_id}' not found."}
+            return {"success": False, "error": "Traffic route was not found."}
 
         current_enabled = current.get("enabled", True)
         route_name = current.get("description", route_id)
@@ -406,8 +447,11 @@ async def toggle_traffic_route(
         else:
             return {
                 "success": False,
-                "error": f"Failed to toggle traffic route {route_id}.",
+                "error": "Failed to toggle traffic route.",
             }
     except Exception as e:
-        logger.error("Error toggling traffic route: %s", e, exc_info=True)
-        return {"success": False, "error": f"Failed to toggle traffic route: {e}"}
+        logger.error("Traffic route toggle failed (%s)", type(e).__name__)
+        return {
+            "success": False,
+            "error": "Failed to toggle traffic route. Check controller connectivity and permissions.",
+        }

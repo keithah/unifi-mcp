@@ -237,6 +237,47 @@ class TestUpdateTrafficRouteTargets:
         mgr.update_traffic_route.assert_awaited_once_with("route-001", target_devices=NEW_TARGETS)
 
     @pytest.mark.asyncio
+    async def test_internet_route_target_network_update_forwards_verified_wan(self):
+        mgr = _mock_manager()
+        current = copy.deepcopy(SAMPLE_ROUTE)
+        current["matching_target"] = "INTERNET"
+        current["target_devices"] = [{"type": "CLIENT", "client_mac": "aa:bb:cc:dd:ee:ff"}]
+        mgr.get_traffic_route_details = AsyncMock(return_value=current)
+        networks = MagicMock()
+        networks.get_network_details = AsyncMock(return_value={"_id": "wan-sonic", "purpose": "wan"})
+        with (
+            patch("unifi_network_mcp.tools.traffic_routes.traffic_route_manager", mgr),
+            patch("unifi_network_mcp.tools.traffic_routes.network_manager", networks),
+        ):
+            from unifi_network_mcp.tools.traffic_routes import update_traffic_route
+
+            result = await update_traffic_route("route-001", network_id="wan-sonic", confirm=True)
+
+        assert result["success"] is True
+        mgr.update_traffic_route.assert_awaited_once_with("route-001", network_id="wan-sonic")
+
+    @pytest.mark.asyncio
+    async def test_internet_route_target_network_update_rejects_non_wan(self):
+        mgr = _mock_manager()
+        current = copy.deepcopy(SAMPLE_ROUTE)
+        current["matching_target"] = "INTERNET"
+        current["target_devices"] = [{"type": "CLIENT", "client_mac": "aa:bb:cc:dd:ee:ff"}]
+        mgr.get_traffic_route_details = AsyncMock(return_value=current)
+        networks = MagicMock()
+        networks.get_network_details = AsyncMock(return_value={"_id": "vpn-route", "purpose": "remote-user-vpn"})
+        with (
+            patch("unifi_network_mcp.tools.traffic_routes.traffic_route_manager", mgr),
+            patch("unifi_network_mcp.tools.traffic_routes.network_manager", networks),
+        ):
+            from unifi_network_mcp.tools.traffic_routes import update_traffic_route
+
+            result = await update_traffic_route("route-001", network_id="vpn-route", confirm=True)
+
+        assert result["success"] is False
+        assert "WAN network" in result["error"]
+        mgr.update_traffic_route.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_multiple_route_match_fields_forwarded(self):
         mgr = _mock_manager()
         new_domains = [{"domain": "dev.secondlife.io", "ports": [], "port_ranges": []}]

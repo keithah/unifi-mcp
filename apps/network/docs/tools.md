@@ -89,7 +89,7 @@ Gateway-wide security / NAT / connection-tracking settings (the controller's `us
 - `unifi_toggle_traffic_route` — Enable/disable a route
 - `unifi_create_traffic_route` — Create with full schema
 - `unifi_create_simple_traffic_route` — Create with simplified schema
-- `unifi_update_traffic_route` — Update route settings
+- `unifi_update_traffic_route` — Update route settings, including the target network or VPN
 
 ## Traffic Flows (1 tool)
 
