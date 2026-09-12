@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from unifi_core.network.managers.client_manager import ClientManager
 from unifi_core.network.managers.device_manager import DeviceManager
+from unifi_core.network.managers.network_manager import NetworkManager
 from unifi_core.network.managers.traffic_route_manager import TrafficRouteManager
 
 
@@ -70,5 +71,31 @@ async def test_traffic_route_failures_log_no_identifiers_or_exception_text(caplo
     for value in (route_id, name, "route-client-placeholder", "controller-error-payload"):
         assert value not in caplog.text
         assert all(value not in repr(record.args) for record in caplog.records)
+    assert all(record.exc_info is None for record in caplog.records)
+    assert "RuntimeError" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "response,private_value",
+    [
+        ({"data": "network-response-secret-placeholder"}, "network-response-secret-placeholder"),
+        ({"data": ["network-entry-secret-placeholder"]}, "network-entry-secret-placeholder"),
+    ],
+)
+async def test_network_list_parse_failures_log_no_controller_response_or_traceback(caplog, response, private_value):
+    """Fresh WAN validation must not expose malformed controller responses."""
+    connection = MagicMock()
+    connection.site = "default"
+    connection.get_cached.return_value = None
+    connection.request = AsyncMock(return_value=response)
+
+    with caplog.at_level(logging.DEBUG, logger="unifi-network-mcp"):
+        with pytest.raises(RuntimeError):
+            await NetworkManager(connection).get_networks(force_refresh=True)
+
+    assert caplog.records
+    assert private_value not in caplog.text
+    assert all(private_value not in repr(record.args) for record in caplog.records)
     assert all(record.exc_info is None for record in caplog.records)
     assert "RuntimeError" in caplog.text
