@@ -57,6 +57,56 @@ async def test_request_cache_replays_stored_value_on_repeat() -> None:
 
 
 @pytest.mark.asyncio
+async def test_request_cache_cancels_waiters_when_fetch_owner_is_cancelled() -> None:
+    cache = RequestCache()
+    started = asyncio.Event()
+
+    async def _blocked_fetch() -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    owner = asyncio.create_task(cache.get_or_fetch("cancelled-key", _blocked_fetch))
+    await started.wait()
+    waiter = asyncio.create_task(cache.get_or_fetch("cancelled-key", _blocked_fetch))
+    await asyncio.sleep(0)
+
+    owner.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await owner
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(waiter, timeout=0.1)
+
+
+@pytest.mark.asyncio
+async def test_request_cache_waiter_cancellation_does_not_cancel_owner_fetch() -> None:
+    cache = RequestCache()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    fetch_count = 0
+
+    async def _blocked_fetch() -> str:
+        nonlocal fetch_count
+        fetch_count += 1
+        started.set()
+        await release.wait()
+        return "value"
+
+    owner = asyncio.create_task(cache.get_or_fetch("waiter-cancel-key", _blocked_fetch))
+    await started.wait()
+    waiter = asyncio.create_task(cache.get_or_fetch("waiter-cancel-key", _blocked_fetch))
+    await asyncio.sleep(0)
+
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+
+    release.set()
+    assert await owner == "value"
+    assert fetch_count == 1
+    assert cache._values["waiter-cancel-key"] == "value"
+
+
+@pytest.mark.asyncio
 async def test_request_cache_consumes_unobserved_failed_future() -> None:
     """A sole caller still receives the error without leaking an asyncio warning."""
     cache = RequestCache()

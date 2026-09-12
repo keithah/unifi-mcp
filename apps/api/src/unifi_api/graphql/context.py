@@ -39,7 +39,7 @@ class RequestCache:
         if key in self._values:
             return self._values[key]
         if key in self._inflight:
-            return await self._inflight[key]
+            return await asyncio.shield(self._inflight[key])
         loop = asyncio.get_running_loop()
         fut: asyncio.Future = loop.create_future()
         fut.add_done_callback(_consume_future_exception)
@@ -49,6 +49,10 @@ class RequestCache:
             self._values[key] = value
             fut.set_result(value)
             return value
+        except asyncio.CancelledError:
+            if not fut.done():
+                fut.cancel()
+            raise
         except Exception as exc:
             fut.set_exception(exc)
             raise
