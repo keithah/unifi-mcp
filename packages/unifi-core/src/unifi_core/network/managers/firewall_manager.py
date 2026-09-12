@@ -31,7 +31,10 @@ logger = logging.getLogger("unifi-network-mcp")
 CACHE_PREFIX_FIREWALL_POLICIES = "firewall_policies"
 CACHE_PREFIX_FIREWALL_POLICY_ORDERING = "firewall_policy_ordering"
 CACHE_PREFIX_INTEGRATION_FIREWALL_ZONES = "integration_firewall_zones"
-CACHE_PREFIX_TRAFFIC_ROUTES = "traffic_routes"
+# Legacy route reads cache aiounifi TrafficRoute wrappers. The guarded
+# TrafficRouteManager caches controller dictionaries, so the representations
+# must never share a key.
+CACHE_PREFIX_LEGACY_TRAFFIC_ROUTES = "legacy_traffic_routes"
 CACHE_PREFIX_PORT_FORWARDS = "port_forwards"
 CACHE_PREFIX_FIREWALL_ZONES = "firewall_zones"
 CACHE_PREFIX_FIREWALL_GROUPS = "firewall_groups"
@@ -559,7 +562,7 @@ class FirewallManager:
         Returns:
             List of TrafficRoute objects.
         """
-        cache_key = f"{CACHE_PREFIX_TRAFFIC_ROUTES}_{self._connection.site}"
+        cache_key = f"{CACHE_PREFIX_LEGACY_TRAFFIC_ROUTES}_{self._connection.site}"
         cached_data: Optional[List[TrafficRoute]] = self._connection.get_cached(cache_key)
         if cached_data is not None:
             return cached_data
@@ -620,7 +623,7 @@ class FirewallManager:
             api_request = ApiRequestV2(method="delete", path=f"/trafficroutes/{route_id}")
             await self._connection.request(api_request)
 
-            cache_key = f"{CACHE_PREFIX_TRAFFIC_ROUTES}_{self._connection.site}"
+            cache_key = f"{CACHE_PREFIX_LEGACY_TRAFFIC_ROUTES}_{self._connection.site}"
             self._connection._invalidate_cache(cache_key)
             logger.info("Traffic route deleted")
             return True

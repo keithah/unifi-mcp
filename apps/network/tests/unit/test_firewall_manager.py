@@ -189,6 +189,22 @@ class TestLegacyTrafficRouteSafety:
         assert route_id not in caplog.text
         assert all(route_id not in repr(record.args) for record in caplog.records)
 
+    @pytest.mark.asyncio
+    async def test_legacy_listing_does_not_poison_guarded_route_lookup(self, firewall_manager, mock_connection):
+        """Legacy wrappers and guarded dictionaries must never share a cache entry."""
+        cache = {}
+        route = copy.deepcopy(SAMPLE_ROUTE_RAW)
+        mock_connection.get_cached.side_effect = lambda key: cache.get(key)
+        mock_connection._update_cache.side_effect = lambda key, value: cache.__setitem__(key, value)
+        mock_connection.request = AsyncMock(side_effect=[{"data": [route]}, {"data": [route]}])
+
+        legacy_routes = await firewall_manager.get_traffic_routes()
+        guarded_route = await firewall_manager._traffic_route_manager.get_traffic_route_details("route001")
+
+        assert legacy_routes[0].raw == route
+        assert guarded_route == route
+        assert mock_connection.request.await_count == 2
+
 
 # ---------------------------------------------------------------------------
 # update_firewall_policy — endpoint and merge tests
