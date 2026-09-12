@@ -458,5 +458,5 @@ class TestToggleInternetRouteSafety:
             result = await toggle_traffic_route("route-001", confirm=True)
 
         assert result["success"] is True
-        networks.get_network_details.assert_awaited_once_with("wan-att")
+        networks.get_network_details.assert_awaited_once_with("wan-att", force_refresh=True)
         mgr.toggle_traffic_route.assert_awaited_once_with("route-001")

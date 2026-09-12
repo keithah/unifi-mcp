@@ -76,12 +76,13 @@ class NetworkManager:
         """
         self._connection = connection_manager
 
-    async def get_networks(self) -> List[Dict[str, Any]]:
-        """Get list of networks (LAN/VLAN) for the current site."""
+    async def get_networks(self, *, force_refresh: bool = False) -> List[Dict[str, Any]]:
+        """Get the current site's networks, optionally bypassing the shared cache."""
         cache_key = f"{CACHE_PREFIX_NETWORKS}_{self._connection.site}"
-        cached_data = self._connection.get_cached(cache_key)
-        if cached_data is not None:
-            return cached_data
+        if not force_refresh:
+            cached_data = self._connection.get_cached(cache_key)
+            if cached_data is not None:
+                return cached_data
 
         try:
             # Revert back to V1 API endpoint for listing networks
@@ -123,13 +124,14 @@ class NetworkManager:
             logger.error("Error getting networks via V1 /rest/networkconf: %s", e, exc_info=True)
             raise
 
-    async def get_network_details(self, network_id: str) -> Dict[str, Any]:
-        """Get detailed information for a specific network.
-
-        Raises:
-            UniFiNotFoundError: If the network does not exist.
-        """
-        networks = await self.get_networks()
+    async def get_network_details(
+        self,
+        network_id: str,
+        *,
+        force_refresh: bool = False,
+    ) -> Dict[str, Any]:
+        """Get one network, optionally bypassing the shared network cache."""
+        networks = await self.get_networks(force_refresh=force_refresh)
         network = next((n for n in networks if n.get("_id") == network_id), None)
         if network is None:
             raise UniFiNotFoundError("network", network_id)

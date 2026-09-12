@@ -59,7 +59,7 @@ class TrafficRouteManager:
         if not isinstance(network_id, str) or not network_id:
             raise ValueError("INTERNET Traffic Routes require a target WAN network")
 
-        target_network = await self._network_manager.get_network_details(network_id)
+        target_network = await self._network_manager.get_network_details(network_id, force_refresh=True)
         if not isinstance(target_network, dict) or str(target_network.get("purpose", "")).lower() != "wan":
             raise ValueError("INTERNET Traffic Routes can target only a verified WAN network")
 
@@ -73,7 +73,7 @@ class TrafficRouteManager:
         ):
             await self.validate_internet_route_target(payload.get("target_devices"), payload.get("network_id"))
 
-    async def get_traffic_routes(self) -> List[Dict[str, Any]]:
+    async def get_traffic_routes(self, *, force_refresh: bool = False) -> List[Dict[str, Any]]:
         """Get all traffic routes for the current site.
 
         Uses GET /trafficroutes endpoint (V2 API).
@@ -82,9 +82,10 @@ class TrafficRouteManager:
             List of traffic route objects.
         """
         cache_key = f"{CACHE_PREFIX_TRAFFIC_ROUTES}_{self._connection.site}"
-        cached_data = self._connection.get_cached(cache_key)
-        if cached_data is not None:
-            return cached_data
+        if not force_refresh:
+            cached_data = self._connection.get_cached(cache_key)
+            if cached_data is not None:
+                return cached_data
 
         try:
             api_request = ApiRequestV2(method="get", path="/trafficroutes", data=None)
@@ -104,13 +105,18 @@ class TrafficRouteManager:
             logger.error("Traffic route list failed (%s)", type(e).__name__)
             raise
 
-    async def get_traffic_route_details(self, route_id: str) -> Dict[str, Any]:
+    async def get_traffic_route_details(
+        self,
+        route_id: str,
+        *,
+        force_refresh: bool = False,
+    ) -> Dict[str, Any]:
         """Get details for a specific traffic route by ID.
 
         Raises:
             UniFiNotFoundError: If the route does not exist.
         """
-        all_routes = await self.get_traffic_routes()
+        all_routes = await self.get_traffic_routes(force_refresh=force_refresh)
         route = next((r for r in all_routes if r.get("_id") == route_id), None)
         if route is None:
             raise UniFiNotFoundError("traffic_route", route_id)
@@ -145,7 +151,7 @@ class TrafficRouteManager:
         """
         try:
             # Existence check; raises UniFiNotFoundError on miss.
-            current = await self.get_traffic_route_details(route_id)
+            current = await self.get_traffic_route_details(route_id, force_refresh=True)
 
             # Start with full existing route and apply updates
             payload: Dict[str, Any] = current.copy()
@@ -184,7 +190,7 @@ class TrafficRouteManager:
         Raises:
             UniFiNotFoundError: If the route does not exist.
         """
-        current = await self.get_traffic_route_details(route_id)  # raises on miss
+        current = await self.get_traffic_route_details(route_id, force_refresh=True)  # raises on miss
         new_state = not current.get("enabled", True)
         return await self.update_traffic_route(route_id, enabled=new_state)
 
@@ -203,7 +209,7 @@ class TrafficRouteManager:
         """
         try:
             # raises UniFiNotFoundError on miss
-            current = await self.get_traffic_route_details(route_id)
+            current = await self.get_traffic_route_details(route_id, force_refresh=True)
 
             payload: Dict[str, Any] = current.copy()
             payload["kill_switch_enabled"] = enabled

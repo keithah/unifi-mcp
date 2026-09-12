@@ -33,7 +33,7 @@ async def test_create_rejects_internet_route_with_non_wan_target() -> None:
             }
         )
 
-    network_manager.get_network_details.assert_awaited_once_with("vpn-target")
+    network_manager.get_network_details.assert_awaited_once_with("vpn-target", force_refresh=True)
     connection.request.assert_not_awaited()
 
 
@@ -102,6 +102,41 @@ async def test_toggle_revalidates_the_route_refetched_for_mutation() -> None:
 
 
 @pytest.mark.asyncio
+async def test_update_ignores_cached_route_before_write() -> None:
+    manager, connection, network_manager = _manager()
+    stale_cached_route = {
+        "_id": "route-fresh",
+        "description": "Stale unsafe route",
+        "matching_target": "INTERNET",
+        "network_id": "vpn-target",
+        "target_devices": [{"type": "ALL_CLIENTS"}],
+        "enabled": True,
+    }
+    fresh_controller_route = {
+        "_id": "route-fresh",
+        "description": "Fresh disabled route",
+        "matching_target": "INTERNET",
+        "network_id": "wan-target",
+        "target_devices": VALID_TARGET,
+        "enabled": False,
+    }
+    connection.get_cached = MagicMock(return_value=[stale_cached_route])
+    connection.request = AsyncMock(side_effect=[{"data": [fresh_controller_route]}, {}])
+
+    updated = await manager.update_traffic_route("route-fresh", enabled=False)
+
+    assert updated is True
+    connection.get_cached.assert_not_called()
+    assert connection.request.await_count == 2
+    get_request, put_request = [call.args[0] for call in connection.request.await_args_list]
+    assert get_request.method == "get"
+    assert get_request.path == "/trafficroutes"
+    assert put_request.method == "put"
+    assert put_request.data["description"] == "Fresh disabled route"
+    network_manager.get_network_details.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_update_can_disable_unsafe_legacy_internet_route() -> None:
     manager, connection, network_manager = _manager()
     manager.get_traffic_route_details = AsyncMock(
@@ -156,5 +191,5 @@ async def test_create_allows_valid_single_client_wan_route() -> None:
     created = await manager.create_traffic_route(payload)
 
     assert created == {"_id": "route-new"}
-    network_manager.get_network_details.assert_awaited_once_with("wan-target")
+    network_manager.get_network_details.assert_awaited_once_with("wan-target", force_refresh=True)
     connection.request.assert_awaited_once()

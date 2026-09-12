@@ -45,7 +45,7 @@ async def _validate_internet_route_target(target_devices: Any, network_id: Any) 
             "error": "INTERNET Traffic Routes require a target WAN network.",
         }
     try:
-        target_network = await network_manager.get_network_details(network_id)
+        target_network = await network_manager.get_network_details(network_id, force_refresh=True)
     except UniFiNotFoundError:
         return {"success": False, "error": "Target network was not found."}
     except Exception as e:
