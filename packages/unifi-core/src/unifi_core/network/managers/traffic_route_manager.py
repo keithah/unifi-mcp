@@ -63,14 +63,34 @@ class TrafficRouteManager:
         if not isinstance(target_network, dict) or str(target_network.get("purpose", "")).lower() != "wan":
             raise ValueError("INTERNET Traffic Routes can target only a verified WAN network")
 
-    async def _validate_enabled_internet_route(self, payload: Dict[str, Any]) -> None:
-        """Validate an active Internet route before it reaches the controller."""
+    async def _validate_internet_route_payload(
+        self,
+        payload: Dict[str, Any],
+        *,
+        existing_payload: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Validate Internet routes, retaining only an unchanged disabled legacy scope."""
         matching_target = payload.get("matching_target")
-        if (
-            isinstance(matching_target, str)
-            and matching_target.upper() == "INTERNET"
-            and payload.get("enabled") is not False
-        ):
+        is_internet_route = isinstance(matching_target, str) and matching_target.upper() == "INTERNET"
+        if not is_internet_route:
+            return
+
+        if payload.get("enabled") is not False:
+            await self.validate_internet_route_target(payload.get("target_devices"), payload.get("network_id"))
+            return
+
+        existing_target = existing_payload.get("matching_target") if existing_payload else None
+        existing_is_internet_route = isinstance(existing_target, str) and existing_target.upper() == "INTERNET"
+        scope_changed = (
+            (
+                not existing_is_internet_route
+                or existing_payload.get("target_devices") != payload.get("target_devices")
+                or existing_payload.get("network_id") != payload.get("network_id")
+            )
+            if existing_payload
+            else True
+        )
+        if scope_changed:
             await self.validate_internet_route_target(payload.get("target_devices"), payload.get("network_id"))
 
     async def get_traffic_routes(self, *, force_refresh: bool = False) -> List[Dict[str, Any]]:
@@ -124,7 +144,7 @@ class TrafficRouteManager:
 
     async def create_traffic_route(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Create a traffic route using POST /trafficroutes (V2 API)."""
-        await self._validate_enabled_internet_route(payload)
+        await self._validate_internet_route_payload(payload)
         api_request = ApiRequestV2(method="post", path="/trafficroutes", data=payload)
         response = await self._connection.request(api_request)
         result = response.get("data", response) if isinstance(response, dict) else response
@@ -164,7 +184,7 @@ class TrafficRouteManager:
                 if value is not None:
                     payload[key] = value
 
-            await self._validate_enabled_internet_route(payload)
+            await self._validate_internet_route_payload(payload, existing_payload=current)
 
             api_request = ApiRequestV2(
                 method="put",
@@ -214,7 +234,7 @@ class TrafficRouteManager:
             payload: Dict[str, Any] = current.copy()
             payload["kill_switch_enabled"] = enabled
 
-            await self._validate_enabled_internet_route(payload)
+            await self._validate_internet_route_payload(payload, existing_payload=current)
 
             api_request = ApiRequestV2(
                 method="put",

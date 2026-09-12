@@ -38,6 +38,24 @@ async def test_create_rejects_internet_route_with_non_wan_target() -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_rejects_disabled_internet_route_with_non_wan_target() -> None:
+    manager, connection, _ = _manager(purpose="remote-user-vpn")
+
+    with pytest.raises(ValueError, match="WAN network"):
+        await manager.create_traffic_route(
+            {
+                "description": "Disabled unsafe route",
+                "matching_target": "INTERNET",
+                "network_id": "vpn-target",
+                "target_devices": VALID_TARGET,
+                "enabled": False,
+            }
+        )
+
+    connection.request.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_update_cannot_enable_unsafe_legacy_internet_route() -> None:
     manager, connection, _ = _manager()
     manager.get_traffic_route_details = AsyncMock(
@@ -134,6 +152,26 @@ async def test_update_ignores_cached_route_before_write() -> None:
     assert put_request.method == "put"
     assert put_request.data["description"] == "Fresh disabled route"
     network_manager.get_network_details.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_update_cannot_make_disabled_internet_route_unsafe() -> None:
+    manager, connection, _ = _manager(purpose="remote-user-vpn")
+    manager.get_traffic_route_details = AsyncMock(
+        return_value={
+            "_id": "route-disabled",
+            "description": "Safe disabled route",
+            "matching_target": "INTERNET",
+            "network_id": "wan-target",
+            "target_devices": VALID_TARGET,
+            "enabled": False,
+        }
+    )
+
+    with pytest.raises(ValueError, match="WAN network"):
+        await manager.update_traffic_route("route-disabled", network_id="vpn-target")
+
+    connection.request.assert_not_awaited()
 
 
 @pytest.mark.asyncio
