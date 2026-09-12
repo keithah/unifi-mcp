@@ -18,6 +18,12 @@ if TYPE_CHECKING:
     from unifi_api.services.managers import ManagerFactory
 
 
+def _consume_future_exception(future: asyncio.Future[Any]) -> None:
+    """Mark a failed in-flight cache future as observed when it has no waiter."""
+    if not future.cancelled():
+        future.exception()
+
+
 class RequestCache:
     """Memoizes async fetches by key for the lifetime of one request.
 
@@ -36,6 +42,7 @@ class RequestCache:
             return await self._inflight[key]
         loop = asyncio.get_running_loop()
         fut: asyncio.Future = loop.create_future()
+        fut.add_done_callback(_consume_future_exception)
         self._inflight[key] = fut
         try:
             value = await fetch()
