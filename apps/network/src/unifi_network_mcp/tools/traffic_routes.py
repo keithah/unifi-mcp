@@ -6,6 +6,7 @@ on a UniFi Network Controller using the V2 API.
 """
 
 import logging
+import re
 from typing import Annotated, Any, Dict, List, Optional
 
 from mcp.types import ToolAnnotations
@@ -13,7 +14,7 @@ from pydantic import Field
 
 from unifi_core.confirmation import create_preview, toggle_preview, update_preview
 from unifi_core.exceptions import UniFiNotFoundError
-from unifi_network_mcp.runtime import server, traffic_route_manager
+from unifi_network_mcp.runtime import network_manager, server, traffic_route_manager
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +24,8 @@ logger = logging.getLogger(__name__)
     description="""Create a narrowly scoped Traffic Route (policy-based route). Requires confirmation.
 
 An explicit matching_target and target network/VPN are required. DOMAIN routes
-require at least one domain. Catch-all INTERNET routes are blocked to prevent
-accidental default VPN routing.""",
+require at least one domain. INTERNET routes are allowed only for one explicit
+CLIENT with a valid MAC address when the target is a verified WAN network.""",
     permission_category="traffic_routes",
     permission_action="create",
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False),
@@ -66,10 +67,34 @@ async def create_traffic_route(
     if target == "REGION" and not regions:
         return {"success": False, "error": "REGION Traffic Routes require a non-empty regions list."}
     if target == "INTERNET":
-        return {
-            "success": False,
-            "error": "INTERNET Traffic Routes are blocked to prevent accidental catch-all VPN routing.",
-        }
+        if (
+            not isinstance(target_devices, list)
+            or len(target_devices) != 1
+            or not isinstance(target_devices[0], dict)
+            or target_devices[0].get("type") != "CLIENT"
+        ):
+            return {
+                "success": False,
+                "error": "INTERNET Traffic Routes require a single CLIENT target_devices entry.",
+            }
+        client_mac = target_devices[0].get("client_mac")
+        if not isinstance(client_mac, str) or not re.fullmatch(r"[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}", client_mac):
+            return {
+                "success": False,
+                "error": "INTERNET Traffic Routes require a valid client_mac for their CLIENT target.",
+            }
+        try:
+            target_network = await network_manager.get_network_details(network_id)
+        except UniFiNotFoundError as e:
+            return {"success": False, "error": str(e)}
+        except Exception as e:
+            logger.error("Unable to verify INTERNET Traffic Route target %s: %s", network_id, e, exc_info=True)
+            return {"success": False, "error": f"Unable to verify target network: {e}"}
+        if target_network.get("purpose") != "wan":
+            return {
+                "success": False,
+                "error": "INTERNET Traffic Routes are allowed only for a WAN network.",
+            }
     for field, value in (
         ("domains", domains),
         ("ip_addresses", ip_addresses),
