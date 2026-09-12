@@ -85,29 +85,32 @@ class TestUpdateTrafficRouteMutationSafety:
 
     @pytest.mark.asyncio
     async def test_does_not_mutate_cached_route(self, firewall_manager, mock_connection):
-        """The cached TrafficRoute.raw must be unchanged after update_traffic_route."""
+        """The guarded path bypasses cached data and leaves it untouched."""
         route = _make_traffic_route()
         original_raw = copy.deepcopy(route.raw)
+        fresh_raw = {**copy.deepcopy(route.raw), "description": "Fresh route"}
+        mock_connection.get_cached.return_value = [route]
+        mock_connection.request = AsyncMock(side_effect=[{"data": [fresh_raw]}, {}])
 
-        with patch.object(firewall_manager, "get_traffic_routes", new_callable=AsyncMock, return_value=[route]):
-            await firewall_manager.update_traffic_route("route001", {"description": "Changed", "enabled": False})
+        await firewall_manager.update_traffic_route("route001", {"description": "Changed", "enabled": False})
 
         assert route.raw == original_raw
+        mock_connection.get_cached.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_happy_path_sends_merged_payload(self, firewall_manager, mock_connection):
         """The API request should contain original fields merged with updates."""
         route = _make_traffic_route()
         updates = {"description": "Updated route", "kill_switch_enabled": True}
+        mock_connection.request = AsyncMock(side_effect=[{"data": [route.raw]}, {}])
 
-        with patch.object(firewall_manager, "get_traffic_routes", new_callable=AsyncMock, return_value=[route]):
-            result = await firewall_manager.update_traffic_route("route001", updates)
+        result = await firewall_manager.update_traffic_route("route001", updates)
 
         assert result is True
-        mock_connection.request.assert_called_once()
+        assert mock_connection.request.await_count == 2
 
-        call_args = mock_connection.request.call_args
-        api_request = call_args[0][0]
+        get_request, api_request = [call.args[0] for call in mock_connection.request.await_args_list]
+        assert get_request.method == "get"
         payload = api_request.data
 
         # Original fields preserved
@@ -124,13 +127,67 @@ class TestUpdateTrafficRouteMutationSafety:
         route = _make_traffic_route()
         original_raw = copy.deepcopy(route.raw)
 
-        mock_connection.request = AsyncMock(side_effect=Exception("API error"))
+        mock_connection.request = AsyncMock(side_effect=[{"data": [route.raw]}, Exception("API error")])
 
-        with patch.object(firewall_manager, "get_traffic_routes", new_callable=AsyncMock, return_value=[route]):
-            with pytest.raises(Exception, match="API error"):
-                await firewall_manager.update_traffic_route("route001", {"description": "Should not persist"})
+        with pytest.raises(Exception, match="API error"):
+            await firewall_manager.update_traffic_route("route001", {"description": "Should not persist"})
 
         assert route.raw == original_raw
+
+
+class TestLegacyTrafficRouteSafety:
+    """Legacy FirewallManager route mutations must use the guarded Core path."""
+
+    @pytest.mark.asyncio
+    async def test_rejects_enabling_unsafe_internet_route(self, firewall_manager, mock_connection):
+        unsafe_route = {
+            "_id": "route-unsafe",
+            "matching_target": "INTERNET",
+            "enabled": False,
+            "network_id": "vpn-target",
+            "target_devices": [{"type": "ALL_CLIENTS"}],
+        }
+        mock_connection.request = AsyncMock(return_value={"data": [unsafe_route]})
+
+        with pytest.raises(ValueError, match="exactly one explicit CLIENT"):
+            await firewall_manager.update_traffic_route("route-unsafe", {"enabled": True})
+
+        assert mock_connection.request.await_count == 1
+        assert mock_connection.request.await_args_list[0].args[0].method == "get"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("operation", ["list", "delete"])
+    async def test_failure_logs_no_identifiers_or_exception_text(
+        self, firewall_manager, mock_connection, caplog, operation
+    ):
+        route_id = "private-route-id"
+        private = f"{route_id} mac-address-placeholder controller-secret-value"
+        mock_connection.request = AsyncMock(side_effect=RuntimeError(private))
+
+        invoke = (
+            firewall_manager.get_traffic_routes()
+            if operation == "list"
+            else firewall_manager.delete_traffic_route(route_id)
+        )
+        with caplog.at_level(logging.DEBUG, logger="unifi-network-mcp"):
+            with pytest.raises(RuntimeError):
+                await invoke
+
+        for value in (route_id, "mac-address-placeholder", "controller-secret-value"):
+            assert value not in caplog.text
+            assert all(value not in repr(record.args) for record in caplog.records)
+        assert all(record.exc_info is None for record in caplog.records)
+        assert "RuntimeError" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_successful_delete_logs_no_route_identifier(self, firewall_manager, mock_connection, caplog):
+        route_id = "private-route-id"
+
+        with caplog.at_level(logging.DEBUG, logger="unifi-network-mcp"):
+            assert await firewall_manager.delete_traffic_route(route_id) is True
+
+        assert route_id not in caplog.text
+        assert all(route_id not in repr(record.args) for record in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -560,7 +617,6 @@ class TestFirewallPolicyOrdering:
 # ---------------------------------------------------------------------------
 
 from aiounifi.models.port_forward import PortForward  # noqa: E402
-from aiounifi.models.traffic_route import TrafficRoute  # noqa: E402
 
 
 class TestPortForwardLookupRobustness:
@@ -591,23 +647,19 @@ class TestPortForwardLookupRobustness:
 
 
 class TestTrafficRouteLookupRobustness:
-    """update_/toggle_ traffic_route must not be poisoned by a malformed sibling route."""
+    """Guarded traffic-route updates tolerate malformed controller siblings."""
 
     @pytest.mark.asyncio
     async def test_update_finds_route_after_malformed_entry(self, firewall_manager, mock_connection):
-        good_target = TrafficRoute(copy.deepcopy(SAMPLE_ROUTE_RAW))
-        malformed = TrafficRoute({"description": "broken-no-id", "enabled": True})
+        good_target = copy.deepcopy(SAMPLE_ROUTE_RAW)
+        malformed = {"description": "broken-no-id", "enabled": True}
+        mock_connection.request = AsyncMock(side_effect=[{"data": [malformed, good_target]}, {}])
 
-        with patch.object(
-            firewall_manager,
-            "get_traffic_routes",
-            new_callable=AsyncMock,
-            return_value=[malformed, good_target],
-        ):
-            result = await firewall_manager.update_traffic_route("route001", {"description": "Updated"})
+        result = await firewall_manager.update_traffic_route("route001", {"description": "Updated"})
 
         assert result is True
-        mock_connection.request.assert_called_once()
+        assert mock_connection.request.await_count == 2
+        assert mock_connection.request.await_args_list[0].args[0].method == "get"
 
 
 # ---------------------------------------------------------------------------

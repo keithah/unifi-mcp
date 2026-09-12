@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from unifi_core.exceptions import UniFiNotFoundError
+
 os.environ.setdefault("UNIFI_HOST", "127.0.0.1")
 os.environ.setdefault("UNIFI_USERNAME", "test")
 os.environ.setdefault("UNIFI_PASSWORD", "test")
@@ -410,6 +412,19 @@ class TestUpdateTrafficRouteValidation:
 
 
 class TestToggleInternetRouteSafety:
+    @pytest.mark.asyncio
+    async def test_missing_route_returns_explicit_not_found_response(self):
+        mgr = _mock_manager()
+        mgr.get_traffic_route_details = AsyncMock(side_effect=UniFiNotFoundError("traffic_route", "route-missing"))
+
+        with patch("unifi_network_mcp.tools.traffic_routes.traffic_route_manager", mgr):
+            from unifi_network_mcp.tools.traffic_routes import toggle_traffic_route
+
+            result = await toggle_traffic_route("route-missing", confirm=True)
+
+        assert result == {"success": False, "error": "Traffic route was not found."}
+        mgr.toggle_traffic_route.assert_not_awaited()
+
     @pytest.mark.asyncio
     async def test_enabling_unsafe_internet_route_is_rejected(self):
         mgr = _mock_manager()

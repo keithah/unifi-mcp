@@ -467,6 +467,8 @@ async def toggle_traffic_route(
                 "success": False,
                 "error": "Failed to toggle traffic route.",
             }
+    except UniFiNotFoundError:
+        return {"success": False, "error": "Traffic route was not found."}
     except Exception as e:
         logger.error("Traffic route toggle failed (%s)", type(e).__name__)
         return {

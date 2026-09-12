@@ -82,13 +82,12 @@ Gateway-wide security / NAT / connection-tracking settings (the controller's `us
 - `unifi_update_acl_rule` — Update an existing rule
 - `unifi_delete_acl_rule` — Delete a rule (requires delete permission)
 
-## Traffic Routes (6 tools)
+## Traffic Routes (5 tools)
 
 - `unifi_list_traffic_routes` — List policy-based routing rules
 - `unifi_get_traffic_route_details` — Get route details by ID
 - `unifi_toggle_traffic_route` — Enable/disable a route
 - `unifi_create_traffic_route` — Create with full schema
-- `unifi_create_simple_traffic_route` — Create with simplified schema
 - `unifi_update_traffic_route` — Update route settings, including the target network or VPN
 
 ## Traffic Flows (1 tool)
