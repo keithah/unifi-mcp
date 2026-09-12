@@ -53,6 +53,18 @@ def _make_mock_connection(routes: list | None = None):
     return conn
 
 
+def _seed_both_traffic_route_caches(mock_connection):
+    """Populate the distinct guarded and legacy route cache representations."""
+    cache = {
+        "traffic_routes_default": [{"_id": "guarded-route"}],
+        "legacy_traffic_routes_default": ["legacy-route-wrapper"],
+    }
+    mock_connection._invalidate_cache.side_effect = lambda prefix: [
+        cache.pop(key) for key in list(cache) if key.startswith(prefix)
+    ]
+    return cache
+
+
 @pytest.fixture
 def mock_connection():
     return _make_mock_connection()
@@ -191,15 +203,37 @@ class TestLegacyTrafficRouteSafety:
 
     @pytest.mark.asyncio
     async def test_delete_invalidates_both_route_cache_representations(self, firewall_manager, mock_connection):
-        cache = {
-            "traffic_routes_default": [{"_id": "guarded-route"}],
-            "legacy_traffic_routes_default": ["legacy-route-wrapper"],
-        }
-        mock_connection._invalidate_cache.side_effect = lambda prefix: [
-            cache.pop(key) for key in list(cache) if key.startswith(prefix)
-        ]
+        cache = _seed_both_traffic_route_caches(mock_connection)
 
         assert await firewall_manager.delete_traffic_route("route-delete") is True
+
+        assert cache == {}
+
+    @pytest.mark.asyncio
+    async def test_create_invalidates_both_route_cache_representations(self, firewall_manager, mock_connection):
+        cache = _seed_both_traffic_route_caches(mock_connection)
+
+        assert await firewall_manager.create_traffic_route({"matching_target": "DOMAIN"}) == {}
+
+        assert cache == {}
+
+    @pytest.mark.asyncio
+    async def test_update_invalidates_both_route_cache_representations(self, firewall_manager, mock_connection):
+        cache = _seed_both_traffic_route_caches(mock_connection)
+        route = {"_id": "route-update", "matching_target": "DOMAIN", "enabled": True}
+        mock_connection.request = AsyncMock(side_effect=[{"data": [route]}, {}])
+
+        assert await firewall_manager.update_traffic_route("route-update", {"description": "Updated"}) is True
+
+        assert cache == {}
+
+    @pytest.mark.asyncio
+    async def test_toggle_invalidates_both_route_cache_representations(self, firewall_manager, mock_connection):
+        cache = _seed_both_traffic_route_caches(mock_connection)
+        route = {"_id": "route-toggle", "matching_target": "DOMAIN", "enabled": True}
+        mock_connection.request = AsyncMock(side_effect=[{"data": [route]}, {"data": [route]}, {}])
+
+        assert await firewall_manager.toggle_traffic_route("route-toggle") is True
 
         assert cache == {}
 
