@@ -258,6 +258,62 @@ class TestUpdateTrafficRouteTargets:
 
         assert result["success"] is True
         mgr.update_traffic_route.assert_awaited_once_with("route-001", network_id="wan-sonic")
+        networks.get_network_details.assert_awaited_once_with("wan-sonic", force_refresh=True)
+
+    @pytest.mark.asyncio
+    async def test_internet_route_target_device_update_forwards_single_valid_client(self):
+        mgr = _mock_manager()
+        current = copy.deepcopy(SAMPLE_ROUTE)
+        current["matching_target"] = "INTERNET"
+        current["network_id"] = "wan-sonic"
+        current["target_devices"] = [{"type": "CLIENT", "client_mac": "aa:bb:cc:dd:ee:ff"}]
+        mgr.get_traffic_route_details = AsyncMock(return_value=current)
+        networks = MagicMock()
+        networks.get_network_details = AsyncMock(return_value={"_id": "wan-sonic", "purpose": "wan"})
+        replacement = [{"type": "CLIENT", "client_mac": "11:22:33:44:55:66"}]
+        with (
+            patch("unifi_network_mcp.tools.traffic_routes.traffic_route_manager", mgr),
+            patch("unifi_network_mcp.tools.traffic_routes.network_manager", networks),
+        ):
+            from unifi_network_mcp.tools.traffic_routes import update_traffic_route
+
+            result = await update_traffic_route("route-001", target_devices=replacement, confirm=True)
+
+        assert result["success"] is True
+        mgr.update_traffic_route.assert_awaited_once_with("route-001", target_devices=replacement)
+        networks.get_network_details.assert_awaited_once_with("wan-sonic", force_refresh=True)
+
+    @pytest.mark.asyncio
+    async def test_internet_route_combined_target_update_forwards_only_valid_final_scope(self):
+        mgr = _mock_manager()
+        current = copy.deepcopy(SAMPLE_ROUTE)
+        current["matching_target"] = "INTERNET"
+        current["network_id"] = "wan-att"
+        current["target_devices"] = [{"type": "CLIENT", "client_mac": "aa:bb:cc:dd:ee:ff"}]
+        mgr.get_traffic_route_details = AsyncMock(return_value=current)
+        networks = MagicMock()
+        networks.get_network_details = AsyncMock(return_value={"_id": "wan-sonic", "purpose": "wan"})
+        replacement = [{"type": "CLIENT", "client_mac": "11:22:33:44:55:66"}]
+        with (
+            patch("unifi_network_mcp.tools.traffic_routes.traffic_route_manager", mgr),
+            patch("unifi_network_mcp.tools.traffic_routes.network_manager", networks),
+        ):
+            from unifi_network_mcp.tools.traffic_routes import update_traffic_route
+
+            result = await update_traffic_route(
+                "route-001",
+                target_devices=replacement,
+                network_id="wan-sonic",
+                confirm=True,
+            )
+
+        assert result["success"] is True
+        mgr.update_traffic_route.assert_awaited_once_with(
+            "route-001",
+            target_devices=replacement,
+            network_id="wan-sonic",
+        )
+        networks.get_network_details.assert_awaited_once_with("wan-sonic", force_refresh=True)
 
     @pytest.mark.asyncio
     async def test_internet_route_target_network_update_rejects_non_wan(self):

@@ -257,6 +257,10 @@ first with unifi_get_traffic_route_details, then send the full desired value):
 - network_id: Replace the target network/VPN. INTERNET routes require a verified WAN target.
 - next_hop: Next-hop IP address (string) for static next-hop routes.
 
+For INTERNET routes, a target update is allowed only when the resulting route still
+has exactly one explicit CLIENT target with a valid MAC address and a freshly
+verified WAN target. Broad targets and non-WAN targets are rejected.
+
 At least one field must be provided.""",
     permission_category="traffic_routes",
     permission_action="update",

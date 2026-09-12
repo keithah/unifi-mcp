@@ -175,6 +175,62 @@ async def test_update_cannot_make_disabled_internet_route_unsafe() -> None:
 
 
 @pytest.mark.asyncio
+async def test_update_can_retarget_valid_internet_route_without_expanding_scope() -> None:
+    manager, connection, network_manager = _manager()
+    manager.get_traffic_route_details = AsyncMock(
+        return_value={
+            "_id": "route-safe",
+            "description": "Safe route",
+            "matching_target": "INTERNET",
+            "network_id": "wan-original",
+            "target_devices": VALID_TARGET,
+            "enabled": True,
+        }
+    )
+    replacement_target = [{"type": "CLIENT", "client_mac": "11:22:33:44:55:66"}]
+
+    updated = await manager.update_traffic_route(
+        "route-safe",
+        network_id="wan-target",
+        target_devices=replacement_target,
+    )
+
+    assert updated is True
+    network_manager.get_network_details.assert_awaited_once_with("wan-target", force_refresh=True)
+    put_request = connection.request.await_args.args[0]
+    assert put_request.method == "put"
+    assert put_request.data["network_id"] == "wan-target"
+    assert put_request.data["target_devices"] == replacement_target
+
+
+@pytest.mark.asyncio
+async def test_update_cannot_expand_enabled_internet_route() -> None:
+    manager, connection, network_manager = _manager()
+    manager.get_traffic_route_details = AsyncMock(
+        return_value={
+            "_id": "route-safe",
+            "description": "Safe route",
+            "matching_target": "INTERNET",
+            "network_id": "wan-target",
+            "target_devices": VALID_TARGET,
+            "enabled": True,
+        }
+    )
+
+    with pytest.raises(ValueError, match="exactly one explicit CLIENT"):
+        await manager.update_traffic_route(
+            "route-safe",
+            target_devices=[
+                {"type": "CLIENT", "client_mac": "11:22:33:44:55:66"},
+                {"type": "CLIENT", "client_mac": "22:33:44:55:66:77"},
+            ],
+        )
+
+    network_manager.get_network_details.assert_not_awaited()
+    connection.request.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_update_can_disable_unsafe_legacy_internet_route() -> None:
     manager, connection, network_manager = _manager()
     manager.get_traffic_route_details = AsyncMock(
