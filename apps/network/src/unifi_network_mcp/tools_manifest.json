@@ -15729,7 +15729,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Toggle a traffic route on/off by ID.",
+      "description": "Toggle a traffic route on/off by ID.\n\nEnabling an INTERNET route requires one explicit CLIENT target with a valid MAC\naddress and a verified WAN network.",
       "name": "unifi_toggle_traffic_route",
       "permission_action": "update",
       "permission_category": "traffic_routes",
@@ -18552,7 +18552,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Update a traffic route's settings.\n\nPass only the fields you want to change \u2014 current values are automatically preserved.\n\nToggle fields:\n- enabled: Enable or disable the traffic route\n- kill_switch_enabled: Enable/disable the kill switch (blocks traffic if VPN is down)\n\nRouting-match fields (each REPLACES the whole existing list/value \u2014 read the route\nfirst with unifi_get_traffic_route_details, then send the full desired value):\n- target_devices: Which clients/networks the route applies to. List of objects, e.g.\n  [{\"type\": \"CLIENT\", \"client_mac\": \"aa:bb:cc:dd:ee:ff\"}],\n  [{\"type\": \"NETWORK\", \"network_id\": \"<id>\"}], or [{\"type\": \"ALL_CLIENTS\"}].\n- domains: List of domain objects, e.g. [{\"domain\": \"example.com\", \"ports\": [], \"port_ranges\": []}].\n- ip_addresses: List of IP/subnet objects (for matching_target=IP routes).\n- ip_ranges: List of IP-range objects.\n- regions: List of ISO country/region codes, e.g. [\"US\", \"CA\"].\n- network_id: Replace the target network/VPN. INTERNET routes require a verified WAN target.\n- next_hop: Next-hop IP address (string) for static next-hop routes.\n\nAt least one field must be provided.",
+      "description": "Update a traffic route's settings.\n\nPass only the fields you want to change \u2014 current values are automatically preserved.\n\nToggle fields:\n- enabled: Enable or disable the traffic route\n- kill_switch_enabled: Enable/disable the kill switch (blocks traffic if VPN is down)\n\nRouting-match fields (each REPLACES the whole existing list/value \u2014 read the route\nfirst with unifi_get_traffic_route_details, then send the full desired value):\n- target_devices: Which clients/networks the route applies to. For INTERNET routes, this must remain one explicit CLIENT target.\n  [{\"type\": \"CLIENT\", \"client_mac\": \"aa:bb:cc:dd:ee:ff\"}],\n  [{\"type\": \"NETWORK\", \"network_id\": \"<id>\"}], or [{\"type\": \"ALL_CLIENTS\"}].\n- domains: List of domain objects, e.g. [{\"domain\": \"example.com\", \"ports\": [], \"port_ranges\": []}].\n- ip_addresses: List of IP/subnet objects (for matching_target=IP routes).\n- ip_ranges: List of IP-range objects.\n- regions: List of ISO country/region codes, e.g. [\"US\", \"CA\"].\n- network_id: Replace the target network/VPN. INTERNET routes require a verified WAN target.\n- next_hop: Next-hop IP address (string) for static next-hop routes.\n\nAt least one field must be provided.",
       "name": "unifi_update_traffic_route",
       "permission_action": "update",
       "permission_category": "traffic_routes",

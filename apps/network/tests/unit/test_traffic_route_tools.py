@@ -39,6 +39,7 @@ def _mock_manager():
     mgr.get_traffic_route_details = AsyncMock(return_value=copy.deepcopy(SAMPLE_ROUTE))
     mgr.update_traffic_route = AsyncMock(return_value=True)
     mgr.create_traffic_route = AsyncMock(return_value={"_id": "route-new", "description": "YouTube via VPN"})
+    mgr.toggle_traffic_route = AsyncMock(return_value=True)
     return mgr
 
 
@@ -278,6 +279,54 @@ class TestUpdateTrafficRouteTargets:
         mgr.update_traffic_route.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_internet_route_target_device_update_rejects_all_clients(self):
+        mgr = _mock_manager()
+        current = copy.deepcopy(SAMPLE_ROUTE)
+        current["matching_target"] = "INTERNET"
+        current["network_id"] = "wan-sonic"
+        current["target_devices"] = [{"type": "CLIENT", "client_mac": "aa:bb:cc:dd:ee:ff"}]
+        mgr.get_traffic_route_details = AsyncMock(return_value=current)
+        networks = MagicMock()
+        networks.get_network_details = AsyncMock(return_value={"_id": "wan-sonic", "purpose": "wan"})
+        with (
+            patch("unifi_network_mcp.tools.traffic_routes.traffic_route_manager", mgr),
+            patch("unifi_network_mcp.tools.traffic_routes.network_manager", networks),
+        ):
+            from unifi_network_mcp.tools.traffic_routes import update_traffic_route
+
+            result = await update_traffic_route(
+                "route-001",
+                target_devices=[{"type": "ALL_CLIENTS"}],
+                confirm=True,
+            )
+
+        assert result["success"] is False
+        assert "single CLIENT" in result["error"]
+        mgr.update_traffic_route.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_enabling_unsafe_internet_route_is_rejected(self):
+        mgr = _mock_manager()
+        current = copy.deepcopy(SAMPLE_ROUTE)
+        current.update(
+            {
+                "enabled": False,
+                "matching_target": "INTERNET",
+                "network_id": "vpn-route",
+                "target_devices": [{"type": "ALL_CLIENTS"}],
+            }
+        )
+        mgr.get_traffic_route_details = AsyncMock(return_value=current)
+        with patch("unifi_network_mcp.tools.traffic_routes.traffic_route_manager", mgr):
+            from unifi_network_mcp.tools.traffic_routes import update_traffic_route
+
+            result = await update_traffic_route("route-001", enabled=True, confirm=True)
+
+        assert result["success"] is False
+        assert "single CLIENT" in result["error"]
+        mgr.update_traffic_route.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_multiple_route_match_fields_forwarded(self):
         mgr = _mock_manager()
         new_domains = [{"domain": "dev.secondlife.io", "ports": [], "port_ranges": []}]
@@ -353,3 +402,61 @@ class TestUpdateTrafficRouteValidation:
         assert result["success"] is False
         assert "must be an object with a 'type'" in result["error"]
         mgr.update_traffic_route.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Toggle Internet-route safety
+# ---------------------------------------------------------------------------
+
+
+class TestToggleInternetRouteSafety:
+    @pytest.mark.asyncio
+    async def test_enabling_unsafe_internet_route_is_rejected(self):
+        mgr = _mock_manager()
+        current = copy.deepcopy(SAMPLE_ROUTE)
+        current.update(
+            {
+                "enabled": False,
+                "matching_target": "INTERNET",
+                "network_id": "vpn-route",
+                "target_devices": [{"type": "ALL_CLIENTS"}],
+            }
+        )
+        mgr.get_traffic_route_details = AsyncMock(return_value=current)
+
+        with patch("unifi_network_mcp.tools.traffic_routes.traffic_route_manager", mgr):
+            from unifi_network_mcp.tools.traffic_routes import toggle_traffic_route
+
+            result = await toggle_traffic_route("route-001", confirm=True)
+
+        assert result["success"] is False
+        assert "single CLIENT" in result["error"]
+        mgr.toggle_traffic_route.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_enabling_safe_internet_route_validates_wan_then_toggles(self):
+        mgr = _mock_manager()
+        current = copy.deepcopy(SAMPLE_ROUTE)
+        current.update(
+            {
+                "enabled": False,
+                "matching_target": "INTERNET",
+                "network_id": "wan-att",
+                "target_devices": [{"type": "CLIENT", "client_mac": "aa:bb:cc:dd:ee:ff"}],
+            }
+        )
+        mgr.get_traffic_route_details = AsyncMock(return_value=current)
+        networks = MagicMock()
+        networks.get_network_details = AsyncMock(return_value={"_id": "wan-att", "purpose": "wan"})
+
+        with (
+            patch("unifi_network_mcp.tools.traffic_routes.traffic_route_manager", mgr),
+            patch("unifi_network_mcp.tools.traffic_routes.network_manager", networks),
+        ):
+            from unifi_network_mcp.tools.traffic_routes import toggle_traffic_route
+
+            result = await toggle_traffic_route("route-001", confirm=True)
+
+        assert result["success"] is True
+        networks.get_network_details.assert_awaited_once_with("wan-att")
+        mgr.toggle_traffic_route.assert_awaited_once_with("route-001")

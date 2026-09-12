@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 _CLIENT_MAC_PATTERN = re.compile(r"[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}")
 
 
-async def _validate_internet_route_target(target_devices: Any, network_id: str) -> Optional[Dict[str, Any]]:
+async def _validate_internet_route_target(target_devices: Any, network_id: Any) -> Optional[Dict[str, Any]]:
     """Return a validation error unless an INTERNET route is a single-client WAN route."""
     if (
         not isinstance(target_devices, list)
@@ -38,6 +38,11 @@ async def _validate_internet_route_target(target_devices: Any, network_id: str) 
         return {
             "success": False,
             "error": "INTERNET Traffic Routes require a valid client_mac for their CLIENT target.",
+        }
+    if not isinstance(network_id, str) or not network_id:
+        return {
+            "success": False,
+            "error": "INTERNET Traffic Routes require a target WAN network.",
         }
     try:
         target_network = await network_manager.get_network_details(network_id)
@@ -242,7 +247,7 @@ Toggle fields:
 
 Routing-match fields (each REPLACES the whole existing list/value — read the route
 first with unifi_get_traffic_route_details, then send the full desired value):
-- target_devices: Which clients/networks the route applies to. List of objects, e.g.
+- target_devices: Which clients/networks the route applies to. For INTERNET routes, this must remain one explicit CLIENT target.
   [{"type": "CLIENT", "client_mac": "aa:bb:cc:dd:ee:ff"}],
   [{"type": "NETWORK", "network_id": "<id>"}], or [{"type": "ALL_CLIENTS"}].
 - domains: List of domain objects, e.g. [{"domain": "example.com", "ports": [], "port_ranges": []}].
@@ -361,9 +366,12 @@ async def update_traffic_route(
         current = await traffic_route_manager.get_traffic_route_details(route_id)
         route_name = current.get("description", route_id)
 
-        if "network_id" in updates and current.get("matching_target") == "INTERNET":
+        is_internet_route = current.get("matching_target") == "INTERNET"
+        is_being_enabled = updates.get("enabled") is True and not current.get("enabled", True)
+        if is_internet_route and ({"network_id", "target_devices"} & updates.keys() or is_being_enabled):
             route_targets = updates.get("target_devices", current.get("target_devices"))
-            validation_error = await _validate_internet_route_target(route_targets, updates["network_id"])
+            route_network_id = updates.get("network_id", current.get("network_id"))
+            validation_error = await _validate_internet_route_target(route_targets, route_network_id)
             if validation_error:
                 return validation_error
 
@@ -398,7 +406,10 @@ async def update_traffic_route(
 
 @server.tool(
     name="unifi_toggle_traffic_route",
-    description="Toggle a traffic route on/off by ID.",
+    description="""Toggle a traffic route on/off by ID.
+
+Enabling an INTERNET route requires one explicit CLIENT target with a valid MAC
+address and a verified WAN network.""",
     permission_category="traffic_routes",
     permission_action="update",
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False),
@@ -422,6 +433,13 @@ async def toggle_traffic_route(
 
         current_enabled = current.get("enabled", True)
         route_name = current.get("description", route_id)
+
+        if not current_enabled and current.get("matching_target") == "INTERNET":
+            validation_error = await _validate_internet_route_target(
+                current.get("target_devices"), current.get("network_id")
+            )
+            if validation_error:
+                return validation_error
 
         # Return preview when confirm=false
         if not confirm:
