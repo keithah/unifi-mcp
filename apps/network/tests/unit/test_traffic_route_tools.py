@@ -53,7 +53,7 @@ class TestCreateTrafficRoute:
             from unifi_network_mcp.tools.traffic_routes import create_traffic_route
 
             result = await create_traffic_route(
-                description="YouTube via VPN",
+                name="YouTube via VPN",
                 matching_target="DOMAIN",
                 network_id="vpn-albania",
                 domains=[{"domain": "youtube.com", "ports": [], "port_ranges": []}],
@@ -71,7 +71,7 @@ class TestCreateTrafficRoute:
             from unifi_network_mcp.tools.traffic_routes import create_traffic_route
 
             result = await create_traffic_route(
-                description="YouTube via VPN",
+                name="YouTube via VPN",
                 matching_target="DOMAIN",
                 network_id="vpn-albania",
                 domains=[{"domain": "youtube.com"}],
@@ -81,7 +81,9 @@ class TestCreateTrafficRoute:
             )
 
         assert result["success"] is True
-        assert result["route_id"] == "route-new"
+        assert result["data"]["id"] == "route-new"
+        assert result["data"]["name"] == "YouTube via VPN"
+        assert "route_id" not in result
         mgr.create_traffic_route.assert_awaited_once_with(
             {
                 "description": "YouTube via VPN",
@@ -99,13 +101,32 @@ class TestCreateTrafficRoute:
         )
 
     @pytest.mark.asyncio
+    async def test_empty_target_devices_are_rejected_instead_of_widening_scope(self):
+        mgr = _mock_manager()
+        with patch("unifi_network_mcp.tools.traffic_routes.traffic_route_manager", mgr):
+            from unifi_network_mcp.tools.traffic_routes import create_traffic_route
+
+            result = await create_traffic_route(
+                name="Explicitly empty targets",
+                matching_target="DOMAIN",
+                network_id="vpn-albania",
+                domains=[{"domain": "youtube.com"}],
+                target_devices=[],
+                confirm=True,
+            )
+
+        assert result["success"] is False
+        assert "target_devices" in result["error"]
+        mgr.create_traffic_route.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_domain_route_rejects_missing_domains(self):
         mgr = _mock_manager()
         with patch("unifi_network_mcp.tools.traffic_routes.traffic_route_manager", mgr):
             from unifi_network_mcp.tools.traffic_routes import create_traffic_route
 
             result = await create_traffic_route(
-                description="Unsafe route",
+                name="Unsafe route",
                 matching_target="DOMAIN",
                 network_id="vpn-albania",
                 confirm=True,
@@ -128,7 +149,7 @@ class TestCreateTrafficRoute:
             from unifi_network_mcp.tools.traffic_routes import create_traffic_route
 
             result = await create_traffic_route(
-                description="Desktop via WAN2",
+                name="Desktop via WAN2",
                 matching_target="INTERNET",
                 network_id="wan-att",
                 target_devices=target,
@@ -154,7 +175,7 @@ class TestCreateTrafficRoute:
             from unifi_network_mcp.tools.traffic_routes import create_traffic_route
 
             result = await create_traffic_route(
-                description="Desktop via WAN2",
+                name="Desktop via WAN2",
                 matching_target="INTERNET",
                 network_id="wan-att",
                 target_devices=target,
@@ -177,7 +198,7 @@ class TestCreateTrafficRoute:
             from unifi_network_mcp.tools.traffic_routes import create_traffic_route
 
             result = await create_traffic_route(
-                description="Unsafe route",
+                name="Unsafe route",
                 matching_target="INTERNET",
                 network_id="vpn-route",
                 target_devices=[{"type": "CLIENT", "client_mac": "aa:bb:cc:dd:ee:ff"}],
@@ -199,7 +220,7 @@ class TestCreateTrafficRoute:
             from unifi_network_mcp.tools.traffic_routes import create_traffic_route
 
             result = await create_traffic_route(
-                description="Unsafe route",
+                name="Unsafe route",
                 matching_target="INTERNET",
                 network_id="wan-att",
                 target_devices=[{"type": "ALL_CLIENTS"}],
@@ -222,7 +243,7 @@ class TestCreateTrafficRoute:
             from unifi_network_mcp.tools.traffic_routes import create_traffic_route
 
             result = await create_traffic_route(
-                description="Unsafe route",
+                name="Unsafe route",
                 matching_target="INTERNET",
                 network_id="wan-att",
                 target_devices=[{"type": "CLIENT", "client_mac": client_mac}],
@@ -245,7 +266,7 @@ class TestCreateTrafficRoute:
             from unifi_network_mcp.tools.traffic_routes import create_traffic_route
 
             result = await create_traffic_route(
-                description="Unsafe route",
+                name="Unsafe route",
                 matching_target="INTERNET",
                 network_id="wan-att",
                 target_devices=[{"type": "CLIENT", "client_mac": "not-a-mac"}],
@@ -605,4 +626,5 @@ class TestToggleInternetRouteSafety:
 
         assert result["success"] is True
         networks.get_network_details.assert_awaited_once_with("wan-att", force_refresh=True)
+        mgr.get_traffic_route_details.assert_awaited_once_with("route-001", force_refresh=True)
         mgr.toggle_traffic_route.assert_awaited_once_with("route-001")

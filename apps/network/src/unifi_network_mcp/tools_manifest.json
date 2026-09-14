@@ -2938,10 +2938,6 @@
               "description": "When true, creates; when false, previews",
               "type": "boolean"
             },
-            "description": {
-              "description": "Human-readable route name (maximum 128 characters)",
-              "type": "string"
-            },
             "domains": {
               "description": "DOMAIN entries, e.g. [{\"domain\": \"youtube.com\"}]",
               "type": "array"
@@ -2966,6 +2962,10 @@
               "description": "Destination match type: DOMAIN, IP, REGION, or INTERNET",
               "type": "string"
             },
+            "name": {
+              "description": "Human-readable route name (maximum 128 characters)",
+              "type": "string"
+            },
             "network_id": {
               "description": "Target network or VPN client ID",
               "type": "string"
@@ -2980,7 +2980,7 @@
             }
           },
           "required": [
-            "description",
+            "name",
             "matching_target",
             "network_id"
           ],

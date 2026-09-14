@@ -14,7 +14,12 @@ from pydantic import Field, ValidationError
 from unifi_core.confirmation import create_preview, toggle_preview, update_preview
 from unifi_core.exceptions import UniFiNotFoundError
 from unifi_core.network.managers.traffic_route_manager import is_unicast_client_mac
-from unifi_core.network.models.traffic_routes import TrafficRoute, to_controller_update
+from unifi_core.network.models.traffic_routes import (
+    TrafficRoute,
+    from_controller,
+    to_controller_create,
+    to_controller_update,
+)
 from unifi_network_mcp.runtime import network_manager, server, traffic_route_manager
 
 logger = logging.getLogger(__name__)
@@ -70,7 +75,7 @@ CLIENT with a valid unicast MAC address when the target is a verified WAN networ
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False),
 )
 async def create_traffic_route(
-    description: Annotated[str, Field(description="Human-readable route name (maximum 128 characters)")],
+    name: Annotated[str, Field(description="Human-readable route name (maximum 128 characters)")],
     matching_target: Annotated[str, Field(description="Destination match type: DOMAIN, IP, REGION, or INTERNET")],
     network_id: Annotated[str, Field(description="Target network or VPN client ID")],
     domains: Annotated[
@@ -90,8 +95,8 @@ async def create_traffic_route(
 ) -> Dict[str, Any]:
     """Create a validated V2 Traffic Route with an explicit confirmation gate."""
     target = matching_target.upper()
-    if not description or len(description) > 128:
-        return {"success": False, "error": "description is required and must be at most 128 characters."}
+    if not name or len(name) > 128:
+        return {"success": False, "error": "name is required and must be at most 128 characters."}
     if target not in {"DOMAIN", "IP", "REGION", "INTERNET"}:
         return {"success": False, "error": "matching_target must be DOMAIN, IP, REGION, or INTERNET."}
     if not network_id:
@@ -105,10 +110,6 @@ async def create_traffic_route(
         return {"success": False, "error": "IP Traffic Routes require ip_addresses or ip_ranges."}
     if target == "REGION" and not regions:
         return {"success": False, "error": "REGION Traffic Routes require a non-empty regions list."}
-    if target == "INTERNET":
-        validation_error = await _validate_internet_route_target(target_devices, network_id)
-        if validation_error:
-            return validation_error
     for field, value in (
         ("domains", domains),
         ("ip_addresses", ip_addresses),
@@ -118,6 +119,15 @@ async def create_traffic_route(
     ):
         if value is not None and not isinstance(value, list):
             return {"success": False, "error": f"{field} must be a list."}
+    if target_devices == []:
+        return {
+            "success": False,
+            "error": "target_devices must be omitted or contain at least one explicit target.",
+        }
+    if target == "INTERNET":
+        validation_error = await _validate_internet_route_target(target_devices, network_id)
+        if validation_error:
+            return validation_error
     if domains and any(not isinstance(item, dict) or not item.get("domain") for item in domains):
         return {"success": False, "error": "Each domains entry must contain a non-empty domain."}
     if target_devices and any(not isinstance(item, dict) or not item.get("type") for item in target_devices):
@@ -127,28 +137,28 @@ async def create_traffic_route(
         {"domain": item["domain"], "ports": item.get("ports", []), "port_ranges": item.get("port_ranges", [])}
         for item in (domains or [])
     ]
-    payload = {
-        "description": description,
-        "matching_target": target,
-        "network_id": network_id,
-        "domains": normalized_domains,
-        "target_devices": target_devices or [{"type": "ALL_CLIENTS"}],
-        "kill_switch_enabled": kill_switch_enabled,
-        "enabled": enabled,
-        "ip_addresses": ip_addresses or [],
-        "ip_ranges": ip_ranges or [],
-        "regions": regions or [],
-        "next_hop": "",
-    }
+    route = TrafficRoute(
+        name=name,
+        matching_target=target,
+        network_id=network_id,
+        domains=normalized_domains,
+        target_devices=target_devices if target_devices is not None else [{"type": "ALL_CLIENTS"}],
+        kill_switch_enabled=kill_switch_enabled,
+        enabled=enabled,
+        ip_addresses=ip_addresses or [],
+        ip_ranges=ip_ranges or [],
+        regions=regions or [],
+        next_hop="",
+    )
+    payload = to_controller_create(route)
     if not confirm:
-        return create_preview("traffic_route", payload, description)
+        return create_preview("traffic_route", payload, name)
     try:
         created = await traffic_route_manager.create_traffic_route(payload)
         return {
             "success": True,
-            "route_id": created.get("_id"),
-            "details": created,
-            "message": f"Traffic route '{description}' created.",
+            "data": from_controller(created).model_dump(exclude_none=True),
+            "message": f"Traffic route '{name}' created.",
         }
     except Exception as e:
         logger.error("Traffic route create failed (%s)", type(e).__name__)
@@ -429,8 +439,9 @@ async def toggle_traffic_route(
 ) -> Dict[str, Any]:
     """Toggle a traffic route's enabled state."""
     try:
-        # Get current state for preview/message
-        current = await traffic_route_manager.get_traffic_route_details(route_id)
+        # Use a fresh read for preview/message so the reported target state
+        # corresponds to the controller state that will be toggled.
+        current = await traffic_route_manager.get_traffic_route_details(route_id, force_refresh=True)
         if not current:
             return {"success": False, "error": "Traffic route was not found."}
 
