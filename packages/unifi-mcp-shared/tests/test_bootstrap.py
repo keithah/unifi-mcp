@@ -6,6 +6,7 @@ import os
 import pytest
 from omegaconf import OmegaConf
 from unifi_mcp_shared.bootstrap import (
+    DEFAULT_REGISTRATION_MODES,
     assert_credentials_configured,
     load_server_config,
     resolve_env,
@@ -28,6 +29,16 @@ class TestValidateRegistrationMode:
     def test_meta_only(self, monkeypatch):
         monkeypatch.setenv("UNIFI_TOOL_REGISTRATION_MODE", "meta_only")
         assert validate_registration_mode(logging.getLogger("test")) == "meta_only"
+
+    def test_code_mode_requires_explicit_application_opt_in(self, monkeypatch):
+        monkeypatch.setenv("UNIFI_TOOL_REGISTRATION_MODE", "code_mode")
+        logger = logging.getLogger("test")
+
+        assert validate_registration_mode(logger) == "lazy"
+        assert validate_registration_mode(
+            logger,
+            supported_modes=DEFAULT_REGISTRATION_MODES | {"code_mode"},
+        ) == "code_mode"
 
     def test_invalid_falls_back_to_lazy(self, monkeypatch):
         monkeypatch.setenv("UNIFI_TOOL_REGISTRATION_MODE", "invalid_mode")

@@ -105,6 +105,10 @@ from unifi_core.network.controller_type import (  # noqa: E402
 
 UNIFI_CONTROLLER_TYPE = resolve_controller_type()
 
-from unifi_mcp_shared.bootstrap import validate_registration_mode
+from unifi_mcp_shared.bootstrap import DEFAULT_REGISTRATION_MODES, validate_registration_mode
 
-UNIFI_TOOL_REGISTRATION_MODE = validate_registration_mode(logger)
+NETWORK_REGISTRATION_MODES = DEFAULT_REGISTRATION_MODES | {"code_mode"}
+UNIFI_TOOL_REGISTRATION_MODE = validate_registration_mode(
+    logger,
+    supported_modes=NETWORK_REGISTRATION_MODES,
+)

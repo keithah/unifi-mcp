@@ -14,11 +14,17 @@ server:
   log_level: INFO
 
   # Tool registration mode
-  # Options: eager, lazy, meta_only
+  # Options: eager, lazy, meta_only, code_mode
   # - eager: Register all tools immediately - Best for dev console, automation
   # - lazy: Register meta-tools, load others on-demand - RECOMMENDED for LLMs
   # - meta_only: Register only meta-tools, manual discovery - Maximum context savings
   tool_registration_mode: ${oc.env:UNIFI_TOOL_REGISTRATION_MODE,lazy}
+
+  code_mode:
+    max_duration_seconds: ${oc.decode:${oc.env:UNIFI_NETWORK_CODE_MODE_MAX_DURATION_SECONDS,30}}
+    max_memory_bytes: ${oc.decode:${oc.env:UNIFI_NETWORK_CODE_MODE_MAX_MEMORY_BYTES,100000000}}
+    max_tool_calls: ${oc.decode:${oc.env:UNIFI_NETWORK_CODE_MODE_MAX_TOOL_CALLS,25}}
+    max_output_chars: ${oc.decode:${oc.env:UNIFI_NETWORK_CODE_MODE_MAX_OUTPUT_CHARS,16000}}
 
   # Tool filtering (optional, for eager mode)
   # Use these to limit which tools are registered for automation/n8n workflows

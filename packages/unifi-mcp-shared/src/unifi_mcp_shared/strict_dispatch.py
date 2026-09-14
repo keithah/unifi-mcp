@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import pathlib
+from collections.abc import Mapping
 from typing import Any
 
 from mcp.server.mcpserver import Context, MCPServer
@@ -81,6 +82,17 @@ class StrictKwargFastMCP(MCPServer):
         self._allowed_kwargs: dict[str, frozenset[str]] = {}
         if tools_manifest_path is not None:
             self._allowed_kwargs = _load_allowed_kwargs(pathlib.Path(tools_manifest_path))
+
+    def register_allowed_kwargs(self, tool_name: str, input_schema: Mapping[str, Any]) -> None:
+        """Add strict top-level argument validation for a dynamically registered tool."""
+        if not isinstance(tool_name, str) or not tool_name:
+            raise ValueError("Tool name must be a non-empty string.")
+        if not isinstance(input_schema, Mapping):
+            raise ValueError(f"Input schema for {tool_name!r} must contain object properties.")
+        properties = input_schema.get("properties")
+        if not isinstance(properties, Mapping):
+            raise ValueError(f"Input schema for {tool_name!r} must contain object properties.")
+        self._allowed_kwargs[tool_name] = frozenset(properties)
 
     async def call_tool(
         self,

@@ -72,3 +72,21 @@ print(json.dumps({
         "api_key": "synthetic-api-key",
         "untrusted": {},
     }
+
+
+def test_load_config_interpolates_code_mode_limits(monkeypatch):
+    from unifi_network_mcp.bootstrap import load_config
+
+    monkeypatch.setenv("UNIFI_NETWORK_CODE_MODE_MAX_DURATION_SECONDS", "45")
+    monkeypatch.setenv("UNIFI_NETWORK_CODE_MODE_MAX_MEMORY_BYTES", "125000000")
+    monkeypatch.setenv("UNIFI_NETWORK_CODE_MODE_MAX_TOOL_CALLS", "12")
+    monkeypatch.setenv("UNIFI_NETWORK_CODE_MODE_MAX_OUTPUT_CHARS", "9000")
+
+    config = load_config()
+
+    assert config.server.code_mode == {
+        "max_duration_seconds": 45,
+        "max_memory_bytes": 125000000,
+        "max_tool_calls": 12,
+        "max_output_chars": 9000,
+    }

@@ -42,11 +42,14 @@ async def register_tools_for_mode(
     register_meta_tools: Callable | None = None,
     register_load_tools: Callable | None = None,
     auto_load_tools: Callable | None = None,
+    register_code_mode: Callable[[], None] | None = None,
+    install_code_mode_dispatch_guard: Callable | None = None,
 ) -> None:
     """Register meta-tools and domain tools based on *mode*.
 
     Args:
-        mode: One of ``"meta_only"``, ``"lazy"``, or ``"eager"``.
+        mode: One of ``"meta_only"``, ``"lazy"``, or ``"eager"``; applications
+            that explicitly opt into Code Mode may also use ``"code_mode"``.
         server: The FastMCP server instance.
         original_tool_decorator: The unwrapped ``server.tool`` decorator.
         tool_index_handler: Handler for the tool index meta-tool.
@@ -64,6 +67,8 @@ async def register_tools_for_mode(
         register_meta_tools: Shared meta-tools registration function.
         register_load_tools: Shared load_tools registration function.
         auto_load_tools: Shared eager tool auto-discovery function.
+        register_code_mode: Application callback that registers Code Mode tools.
+        install_code_mode_dispatch_guard: Callback that protects hidden tool dispatch.
     """
     # Late-import defaults from shared package if not provided
     if register_meta_tools is None:
@@ -88,11 +93,11 @@ async def register_tools_for_mode(
         meta_kwargs["prefix"] = prefix
         meta_kwargs["server_label"] = server_label
 
-    # Always register meta-tools first
-    register_meta_tools(**meta_kwargs)
-
     tool_prefix = prefix or "unifi"
     support_hint = f", {tool_prefix}_get_support_bundle" if support_bundle_handler is not None else ""
+
+    if mode != "code_mode":
+        register_meta_tools(**meta_kwargs)
 
     if mode == "meta_only":
         logger.info("Tool registration mode: meta_only")
@@ -138,6 +143,16 @@ async def register_tools_for_mode(
         register_load_tools(**load_kwargs)
 
         logger.info("   Lazy loader ready - %d tools available on-demand", len(tool_module_map))
+
+    elif mode == "code_mode":
+        if register_code_mode is None:
+            raise ValueError("code_mode requires an application Code Mode registration callback")
+        if install_code_mode_dispatch_guard is None:
+            from unifi_mcp_shared.code_mode import install_code_mode_dispatch_guard
+
+        register_code_mode()
+        setup_lazy_loading(server, original_tool_decorator)
+        install_code_mode_dispatch_guard(server, prefix=tool_prefix)
 
     else:  # eager
         logger.info("Tool registration mode: eager")

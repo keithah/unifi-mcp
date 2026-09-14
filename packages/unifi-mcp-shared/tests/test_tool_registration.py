@@ -37,6 +37,7 @@ def _deps():
 class TestRegisterToolsForMode:
     """Tests for the tool visibility surfaces in each registration mode."""
 
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("mode", ["lazy", "meta_only", "eager"])
     async def test_legacy_apps_can_omit_support_handler(self, mode, caplog):
         deps = _deps()
@@ -120,4 +121,38 @@ class TestRegisterToolsForMode:
             enabled_tools=None,
             server=server,
         )
+        server.list_tools.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_code_mode_callback_is_used_instead_of_meta_or_eager_registration(self):
+        calls: list[str] = []
+        server = _server()
+        deps = _deps()
+
+        def setup_lazy_loading(received_server, received_tool_decorator):
+            assert received_server is server
+            assert received_tool_decorator is deps["original_tool_decorator"]
+            calls.append("lazy")
+            return "lazy-loader"
+
+        await register_tools_for_mode(
+            mode="code_mode",
+            server=server,
+            base_package="unifi_network_mcp.tools",
+            config=_config(),
+            logger=logging.getLogger("test"),
+            register_meta_tools=lambda **_: calls.append("meta"),
+            register_code_mode=lambda: calls.append("code_mode"),
+            install_code_mode_dispatch_guard=lambda *_args, **_kwargs: calls.append("guard"),
+            **{
+                key: value
+                for key, value in deps.items()
+                if key not in {"register_meta_tools", "setup_lazy_loading"}
+            },
+            setup_lazy_loading=setup_lazy_loading,
+        )
+
+        assert calls == ["code_mode", "lazy", "guard"]
+        deps["register_load_tools"].assert_not_called()
+        deps["auto_load_tools"].assert_not_called()
         server.list_tools.assert_awaited_once()

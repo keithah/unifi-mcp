@@ -19,7 +19,7 @@ import stat
 import subprocess
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from pathlib import Path
 from typing import Any, NoReturn, Sequence
 
@@ -703,7 +703,7 @@ def load_server_config(
 # Registration mode validation
 # ---------------------------------------------------------------------------
 
-VALID_REGISTRATION_MODES = {"lazy", "eager", "meta_only"}
+DEFAULT_REGISTRATION_MODES = frozenset({"lazy", "eager", "meta_only"})
 
 
 def assert_credentials_configured(
@@ -761,18 +761,21 @@ def assert_credentials_configured(
     raise SystemExit(5)
 
 
-def validate_registration_mode(logger: logging.Logger) -> str:
+def validate_registration_mode(
+    logger: logging.Logger,
+    *,
+    supported_modes: Collection[str] | None = None,
+) -> str:
     """Read and validate UNIFI_TOOL_REGISTRATION_MODE from environment.
 
     Returns:
-        A validated registration mode string ("lazy", "eager", or "meta_only").
+        A validated registration mode string ("lazy", "eager", or "meta_only";
+        applications that explicitly opt into Code Mode may also accept
+        "code_mode").
     """
-    mode = os.getenv("UNIFI_TOOL_REGISTRATION_MODE", "lazy").lower()
-    if mode not in VALID_REGISTRATION_MODES:
-        logger.warning(
-            "Invalid UNIFI_TOOL_REGISTRATION_MODE: '%s'. Must be one of: %s. Defaulting to 'lazy'.",
-            mode,
-            ", ".join(sorted(VALID_REGISTRATION_MODES)),
-        )
-        mode = "lazy"
+    allowed = frozenset(supported_modes or DEFAULT_REGISTRATION_MODES)
+    mode = os.getenv("UNIFI_TOOL_REGISTRATION_MODE", "lazy").strip().lower()
+    if mode not in allowed:
+        logger.warning("Invalid tool registration mode %r; falling back to lazy", mode)
+        return "lazy"
     return mode

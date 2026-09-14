@@ -68,6 +68,36 @@ def acl_manifest(tmp_path: pathlib.Path) -> pathlib.Path:
 # -----------------------------
 
 
+async def test_dynamic_schema_is_strictly_checked() -> None:
+    server = StrictKwargFastMCP("test")
+    server.register_allowed_kwargs(
+        "unifi_code_search",
+        {"type": "object", "properties": {"query": {"type": "string"}}},
+    )
+
+    with pytest.raises(ToolError, match="unknown arguments"):
+        await server.call_tool("unifi_code_search", {"query": "AP", "extra": True})
+
+
+def test_register_allowed_kwargs_rejects_invalid_name_and_schema() -> None:
+    server = StrictKwargFastMCP("test")
+
+    with pytest.raises(ValueError, match="Tool name must be a non-empty string"):
+        server.register_allowed_kwargs("", {"properties": {}})
+    with pytest.raises(ValueError, match="Tool name must be a non-empty string"):
+        server.register_allowed_kwargs(None, {"properties": {}})  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="must contain object properties"):
+        server.register_allowed_kwargs("unifi_code_search", {"properties": []})
+
+
+@pytest.mark.parametrize("input_schema", [[], None])
+def test_register_allowed_kwargs_rejects_non_mapping_schema(input_schema: object) -> None:
+    server = StrictKwargFastMCP("test")
+
+    with pytest.raises(ValueError, match="must contain object properties"):
+        server.register_allowed_kwargs("unifi_code_search", input_schema)  # type: ignore[arg-type]
+
+
 async def test_unknown_kwarg_rejected(acl_manifest: pathlib.Path) -> None:
     server = StrictKwargFastMCP("test", tools_manifest_path=acl_manifest)
     with pytest.raises(ToolError) as excinfo:

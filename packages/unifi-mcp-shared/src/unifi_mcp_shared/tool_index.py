@@ -130,7 +130,7 @@ def _contains_exact_phrase(tokens: tuple[str, ...], query_tokens: tuple[str, ...
     )
 
 
-def _rank_tools_by_search(tools: list[Dict[str, Any]], search: str) -> list[Dict[str, Any]]:
+def _rank_all_tools_by_search(tools: list[Dict[str, Any]], search: str) -> list[Dict[str, Any]]:
     query_tokens = tuple(
         dict.fromkeys(token for token in _tokenize(search) if len(token) >= 2 and token not in _SEARCH_STOP_WORDS)
     )
@@ -163,7 +163,20 @@ def _rank_tools_by_search(tools: list[Dict[str, Any]], search: str) -> list[Dict
         ranked.append(((exact_phrase, name_matches, len(matched_tokens)), tool))
 
     ranked.sort(key=lambda item: item[0], reverse=True)
-    return [tool for _score, tool in ranked[:_MAX_SEARCH_RESULTS]]
+    return [tool for _score, tool in ranked]
+
+
+def rank_tools_by_search(
+    tools: list[Dict[str, Any]], search: str, *, limit: int | None = _MAX_SEARCH_RESULTS
+) -> list[Dict[str, Any]]:
+    """Rank manifest tool records by token search with an optional result bound."""
+    ranked = _rank_all_tools_by_search(tools, search)
+    return ranked if limit is None else ranked[:limit]
+
+
+def _rank_tools_by_search(tools: list[Dict[str, Any]], search: str) -> list[Dict[str, Any]]:
+    """Backward-compatible private bounded search helper."""
+    return rank_tools_by_search(tools, search)
 
 
 def register_tool(
@@ -238,7 +251,7 @@ def get_tool_index(
     module_map: Dict[str, str] = {}
 
     if registration_mode == "lazy" and manifest_path is not None:
-        manifest = _load_manifest_cached(manifest_path)
+        manifest = load_tool_manifest(manifest_path)
         if manifest is not None:
             module_map = manifest.get("module_map", {})
             all_tools = manifest.get("tools", [])
@@ -262,7 +275,7 @@ def get_tool_index(
 
     # Apply bounded token search over name + description.
     if search:
-        all_tools = _rank_tools_by_search(all_tools, search)
+        all_tools = rank_tools_by_search(all_tools, search)
 
     # Strip schemas unless explicitly requested
     if not include_schemas:
@@ -313,6 +326,11 @@ def _load_manifest_cached(manifest_path: Path) -> Dict[str, Any] | None:
     logger.debug("Loaded tool index from manifest: %d tools", manifest.get("count", 0))
     _MANIFEST_CACHE[manifest_path] = manifest
     return manifest
+
+
+def load_tool_manifest(manifest_path: Path) -> Dict[str, Any] | None:
+    """Load a tool manifest using the shared path-keyed cache."""
+    return _load_manifest_cached(manifest_path)
 
 
 def policy_gates_from_manifest(manifest_path: Path) -> frozenset[tuple[str, str]]:
