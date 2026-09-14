@@ -255,7 +255,11 @@ def get_system_manager() -> SystemManager:
 
 @lru_cache
 def get_firewall_manager() -> FirewallManager:
-    return FirewallManager(get_connection_manager(), get_auth())
+    return FirewallManager(
+        get_connection_manager(),
+        get_auth(),
+        traffic_route_manager=get_traffic_route_manager(),
+    )
 
 
 @lru_cache

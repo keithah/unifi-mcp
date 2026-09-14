@@ -165,12 +165,15 @@ class TrafficRouteManager:
         await self._validate_internet_route_payload(payload)
         api_request = ApiRequestV2(method="post", path="/trafficroutes", data=payload)
         response = await self._connection.request(api_request)
+        # A returned POST response means the controller may have accepted the mutation,
+        # even if its body is incomplete. Clear both cached representations before
+        # validating the response so the next read cannot report pre-create state.
+        invalidate_traffic_route_caches(self._connection)
         result = response.get("data", response) if isinstance(response, dict) else response
         if isinstance(result, list):
             result = result[0] if result else {}
         if not isinstance(result, dict) or not isinstance(result.get("_id"), str) or not result["_id"].strip():
             raise ValueError("Controller returned an invalid traffic route create response")
-        invalidate_traffic_route_caches(self._connection)
         return result
 
     async def update_traffic_route(self, route_id: str, enabled: Optional[bool] = None, **kwargs) -> bool:

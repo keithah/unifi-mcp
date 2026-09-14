@@ -362,12 +362,13 @@ async def test_create_allows_valid_single_client_wan_route() -> None:
 @pytest.mark.asyncio
 async def test_create_rejects_ambiguous_response_without_route_id(response: object) -> None:
     manager, connection, _ = _manager()
+    cache = _seed_both_traffic_route_caches(connection)
     connection.request = AsyncMock(return_value=response)
 
     with pytest.raises(ValueError, match="traffic route create response"):
         await manager.create_traffic_route({"matching_target": "DOMAIN"})
 
-    connection._invalidate_cache.assert_not_called()
+    assert cache == {}
 
 
 class TestTrafficRouteCacheCoherence:

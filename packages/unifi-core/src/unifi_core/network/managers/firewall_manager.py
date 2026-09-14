@@ -47,17 +47,28 @@ INTEGRATION_API_PAGE_SIZE = 200
 class FirewallManager:
     """Manages Firewall Policies, Traffic Routes, and Port Forwards on the Unifi Controller."""
 
-    def __init__(self, connection_manager: ConnectionManager, auth: UniFiAuth | None = None):
+    def __init__(
+        self,
+        connection_manager: ConnectionManager,
+        auth: UniFiAuth | None = None,
+        traffic_route_manager: TrafficRouteManager | None = None,
+    ):
         """Initialize the Firewall Manager.
 
         Args:
             connection_manager: The shared ConnectionManager instance.
+            auth: Optional integration API authentication.
+            traffic_route_manager: Shared guarded route manager for legacy route methods.
         """
         self._connection = connection_manager
         self._auth = auth
-        self._traffic_route_manager = TrafficRouteManager(
-            connection_manager,
-            network_manager=NetworkManager(connection_manager),
+        self._traffic_route_manager = (
+            traffic_route_manager
+            if traffic_route_manager is not None
+            else TrafficRouteManager(
+                connection_manager,
+                network_manager=NetworkManager(connection_manager),
+            )
         )
 
     async def get_firewall_policy_by_id(self, policy_id: str) -> FirewallPolicy:
@@ -603,9 +614,17 @@ class FirewallManager:
         """Toggle through the guarded TrafficRouteManager compatibility path."""
         return await self._traffic_route_manager.toggle_traffic_route(route_id)
 
-    async def create_traffic_route(self, route_data: Dict[str, Any]) -> Optional[Dict]:
-        """Create through the guarded TrafficRouteManager compatibility path."""
-        return await self._traffic_route_manager.create_traffic_route(route_data)
+    async def create_traffic_route(self, route_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create through the guarded manager while preserving the legacy envelope."""
+        try:
+            created = await self._traffic_route_manager.create_traffic_route(route_data)
+            route_id = created.get("_id") if isinstance(created, dict) else None
+            if not isinstance(route_id, str) or not route_id.strip():
+                raise ValueError("Controller returned an invalid traffic route create response")
+            return {"success": True, "route_id": route_id}
+        except Exception as exc:
+            logger.error("Traffic route create failed (%s)", type(exc).__name__)
+            return {"success": False, "error": "Failed to create traffic route."}
 
     async def delete_traffic_route(self, route_id: str) -> bool:
         """Delete a traffic route by ID.

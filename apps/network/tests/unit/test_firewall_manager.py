@@ -214,9 +214,32 @@ class TestLegacyTrafficRouteSafety:
         cache = _seed_both_traffic_route_caches(mock_connection)
         mock_connection.request = AsyncMock(return_value={"data": {"_id": "route-create"}})
 
-        assert await firewall_manager.create_traffic_route({"matching_target": "DOMAIN"}) == {"_id": "route-create"}
+        assert await firewall_manager.create_traffic_route({"matching_target": "DOMAIN"}) == {
+            "success": True,
+            "route_id": "route-create",
+        }
 
         assert cache == {}
+
+    @pytest.mark.asyncio
+    async def test_create_uses_injected_manager_and_preserves_failure_envelope(self, mock_connection):
+        from unifi_core.network.managers.firewall_manager import FirewallManager
+
+        traffic_route_manager = MagicMock()
+        traffic_route_manager.create_traffic_route = AsyncMock(return_value={"_id": "route-injected"})
+        firewall_manager = FirewallManager(mock_connection, traffic_route_manager=traffic_route_manager)
+
+        assert await firewall_manager.create_traffic_route({"matching_target": "DOMAIN"}) == {
+            "success": True,
+            "route_id": "route-injected",
+        }
+        traffic_route_manager.create_traffic_route.assert_awaited_once_with({"matching_target": "DOMAIN"})
+
+        traffic_route_manager.create_traffic_route = AsyncMock(side_effect=RuntimeError("controller failed"))
+        assert await firewall_manager.create_traffic_route({"matching_target": "DOMAIN"}) == {
+            "success": False,
+            "error": "Failed to create traffic route.",
+        }
 
     @pytest.mark.asyncio
     async def test_update_invalidates_both_route_cache_representations(self, firewall_manager, mock_connection):
@@ -253,6 +276,12 @@ class TestLegacyTrafficRouteSafety:
         assert legacy_routes[0].raw == route
         assert guarded_route == route
         assert mock_connection.request.await_count == 2
+
+
+def test_runtime_reuses_cached_traffic_route_manager_for_firewall_compatibility() -> None:
+    from unifi_network_mcp import runtime
+
+    assert runtime.firewall_manager._traffic_route_manager is runtime.traffic_route_manager
 
 
 # ---------------------------------------------------------------------------
