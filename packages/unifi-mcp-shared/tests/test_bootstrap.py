@@ -35,10 +35,13 @@ class TestValidateRegistrationMode:
         logger = logging.getLogger("test")
 
         assert validate_registration_mode(logger) == "lazy"
-        assert validate_registration_mode(
-            logger,
-            supported_modes=DEFAULT_REGISTRATION_MODES | {"code_mode"},
-        ) == "code_mode"
+        assert (
+            validate_registration_mode(
+                logger,
+                supported_modes=DEFAULT_REGISTRATION_MODES | {"code_mode"},
+            )
+            == "code_mode"
+        )
 
     def test_invalid_falls_back_to_lazy(self, monkeypatch):
         monkeypatch.setenv("UNIFI_TOOL_REGISTRATION_MODE", "invalid_mode")

@@ -144,11 +144,7 @@ class TestRegisterToolsForMode:
             register_meta_tools=lambda **_: calls.append("meta"),
             register_code_mode=lambda: calls.append("code_mode"),
             install_code_mode_dispatch_guard=lambda *_args, **_kwargs: calls.append("guard"),
-            **{
-                key: value
-                for key, value in deps.items()
-                if key not in {"register_meta_tools", "setup_lazy_loading"}
-            },
+            **{key: value for key, value in deps.items() if key not in {"register_meta_tools", "setup_lazy_loading"}},
             setup_lazy_loading=setup_lazy_loading,
         )
 

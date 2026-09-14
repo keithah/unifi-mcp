@@ -5,6 +5,9 @@ from __future__ import annotations
 import importlib
 import json
 import sys
+from collections.abc import AsyncGenerator, Callable
+from types import ModuleType
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -41,6 +44,13 @@ def _json_payload(result: object) -> dict[str, object]:
     raise AssertionError(f"No JSON content in {result!r}")
 
 
+def _clear_network_import_state() -> None:
+    """Remove the package and children so import-time configuration is fresh."""
+    for name in tuple(sys.modules):
+        if name == "unifi_network_mcp" or name.startswith("unifi_network_mcp."):
+            sys.modules.pop(name)
+
+
 @pytest_asyncio.fixture
 async def network_code_mode_server(monkeypatch: pytest.MonkeyPatch) -> object:
     monkeypatch.setenv("UNIFI_TOOL_REGISTRATION_MODE", "code_mode")
@@ -48,9 +58,12 @@ async def network_code_mode_server(monkeypatch: pytest.MonkeyPatch) -> object:
     monkeypatch.setenv("UNIFI_USERNAME", "test")
     monkeypatch.setenv("UNIFI_PASSWORD", "test")
 
-    for name in tuple(sys.modules):
-        if name.startswith("unifi_network_mcp."):
-            sys.modules.pop(name)
+    original_import_state = {
+        name: module
+        for name, module in sys.modules.items()
+        if name == "unifi_network_mcp" or name.startswith("unifi_network_mcp.")
+    }
+    _clear_network_import_state()
 
     try:
         main = importlib.import_module("unifi_network_mcp.main")
@@ -65,9 +78,73 @@ async def network_code_mode_server(monkeypatch: pytest.MonkeyPatch) -> object:
         await main.main_async()
         yield main.server
     finally:
-        for name in tuple(sys.modules):
-            if name.startswith("unifi_network_mcp."):
-                sys.modules.pop(name)
+        _clear_network_import_state()
+        sys.modules.update(original_import_state)
+
+
+@pytest.mark.asyncio
+async def test_code_mode_fixture_restores_preexisting_import_graph_after_teardown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fixture teardown restores the normal-mode graph it temporarily replaces."""
+    original_parent = ModuleType("unifi_network_mcp")
+    original_runtime = ModuleType("unifi_network_mcp.runtime")
+    setattr(original_parent, "runtime", original_runtime)
+    monkeypatch.setitem(sys.modules, "unifi_network_mcp", original_parent)
+    monkeypatch.setitem(sys.modules, "unifi_network_mcp.runtime", original_runtime)
+
+    fixture_factory = cast(
+        Callable[[pytest.MonkeyPatch], AsyncGenerator[object, None]],
+        getattr(network_code_mode_server, "__wrapped__"),
+    )
+    fixture_generator = fixture_factory(monkeypatch)
+    await anext(fixture_generator)
+    await fixture_generator.aclose()
+
+    assert sys.modules["unifi_network_mcp"] is original_parent
+    assert sys.modules["unifi_network_mcp.runtime"] is original_runtime
+    assert original_parent.runtime is original_runtime
+
+
+@pytest.mark.asyncio
+async def test_code_mode_fixture_purges_parent_and_children_after_setup_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fixture teardown must remove a parent package that caches a child module."""
+    stale_parent = ModuleType("unifi_network_mcp")
+    stale_runtime = ModuleType("unifi_network_mcp.runtime")
+    setattr(stale_parent, "runtime", stale_runtime)
+    ambient_import_state = {
+        name: module
+        for name, module in sys.modules.items()
+        if name == "unifi_network_mcp" or name.startswith("unifi_network_mcp.")
+    }
+    _clear_network_import_state()
+    original_import_module = importlib.import_module
+
+    def fail_main_import(name: str, package: str | None = None) -> ModuleType:
+        if name == "unifi_network_mcp.main":
+            monkeypatch.setitem(sys.modules, "unifi_network_mcp", stale_parent)
+            monkeypatch.setitem(sys.modules, "unifi_network_mcp.runtime", stale_runtime)
+            raise RuntimeError("synthetic Code Mode setup failure")
+        return original_import_module(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", fail_main_import)
+    fixture_factory = cast(
+        Callable[[pytest.MonkeyPatch], AsyncGenerator[object, None]],
+        getattr(network_code_mode_server, "__wrapped__"),
+    )
+    fixture_generator = fixture_factory(monkeypatch)
+    try:
+        with pytest.raises(RuntimeError, match="synthetic Code Mode setup failure"):
+            await anext(fixture_generator)
+        await fixture_generator.aclose()
+
+        assert "unifi_network_mcp" not in sys.modules
+        assert "unifi_network_mcp.runtime" not in sys.modules
+    finally:
+        _clear_network_import_state()
+        sys.modules.update(ambient_import_state)
 
 
 @pytest_asyncio.fixture

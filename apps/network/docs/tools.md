@@ -20,17 +20,15 @@ With `UNIFI_TOOL_REGISTRATION_MODE=code_mode`, `tools/list` contains exactly `un
 To change an AP channel through the generic updater: call `unifi_code_search` with `{"query": "set AP radio channel"}`, then call `unifi_code_get_schema` with `{"names": ["unifi_update_device_radio"]}`. Execute a preview:
 
 ```python
-await call_tool("unifi_update_device_radio", {
-    "mac_address": "aa:bb:cc:dd:ee:ff", "radio": "wifi0", "channel": 44
-})
+await call_tool("unifi_update_device_radio", {"mac_address": "aa:bb:cc:dd:ee:ff", "radio": "wifi0", "channel": 44})
 ```
 
 Inspect the returned `requires_confirmation: true`, then execute the confirmed call:
 
 ```python
-await call_tool("unifi_update_device_radio", {
-    "mac_address": "aa:bb:cc:dd:ee:ff", "radio": "wifi0", "channel": 44, "confirm": True
-})
+await call_tool(
+    "unifi_update_device_radio", {"mac_address": "aa:bb:cc:dd:ee:ff", "radio": "wifi0", "channel": 44, "confirm": True}
+)
 ```
 
 Code Mode preserves policy gates and confirmation; it is not a bypass.
