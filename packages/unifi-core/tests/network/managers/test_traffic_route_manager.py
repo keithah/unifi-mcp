@@ -348,6 +348,28 @@ async def test_create_allows_valid_single_client_wan_route() -> None:
     connection.request.assert_awaited_once()
 
 
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"data": []},
+        {},
+        {"data": {}},
+        {"data": {"description": "missing id"}},
+        {"data": {"_id": ""}},
+        {"data": {"_id": None}},
+    ],
+)
+@pytest.mark.asyncio
+async def test_create_rejects_ambiguous_response_without_route_id(response: object) -> None:
+    manager, connection, _ = _manager()
+    connection.request = AsyncMock(return_value=response)
+
+    with pytest.raises(ValueError, match="traffic route create response"):
+        await manager.create_traffic_route({"matching_target": "DOMAIN"})
+
+    connection._invalidate_cache.assert_not_called()
+
+
 class TestTrafficRouteCacheCoherence:
     """Every mutation clears both dictionary and legacy-wrapper route caches."""
 

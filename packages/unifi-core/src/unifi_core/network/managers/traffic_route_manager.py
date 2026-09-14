@@ -168,7 +168,7 @@ class TrafficRouteManager:
         result = response.get("data", response) if isinstance(response, dict) else response
         if isinstance(result, list):
             result = result[0] if result else {}
-        if not isinstance(result, dict):
+        if not isinstance(result, dict) or not isinstance(result.get("_id"), str) or not result["_id"].strip():
             raise ValueError("Controller returned an invalid traffic route create response")
         invalidate_traffic_route_caches(self._connection)
         return result

@@ -212,8 +212,9 @@ class TestLegacyTrafficRouteSafety:
     @pytest.mark.asyncio
     async def test_create_invalidates_both_route_cache_representations(self, firewall_manager, mock_connection):
         cache = _seed_both_traffic_route_caches(mock_connection)
+        mock_connection.request = AsyncMock(return_value={"data": {"_id": "route-create"}})
 
-        assert await firewall_manager.create_traffic_route({"matching_target": "DOMAIN"}) == {}
+        assert await firewall_manager.create_traffic_route({"matching_target": "DOMAIN"}) == {"_id": "route-create"}
 
         assert cache == {}
 
