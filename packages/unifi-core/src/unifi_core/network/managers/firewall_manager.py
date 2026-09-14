@@ -640,9 +640,12 @@ class FirewallManager:
         try:
             # Use V2 endpoint for deletion
             api_request = ApiRequestV2(method="delete", path=f"/trafficroutes/{route_id}")
-            await self._connection.request(api_request)
+            # A DELETE may commit before its response is lost; never retain a stale route cache.
+            try:
+                await self._connection.request(api_request)
+            finally:
+                invalidate_traffic_route_caches(self._connection)
 
-            invalidate_traffic_route_caches(self._connection)
             logger.info("Traffic route deleted")
             return True
         except Exception as e:

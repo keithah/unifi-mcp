@@ -164,11 +164,12 @@ class TrafficRouteManager:
         """Create a traffic route using POST /trafficroutes (V2 API)."""
         await self._validate_internet_route_payload(payload)
         api_request = ApiRequestV2(method="post", path="/trafficroutes", data=payload)
-        response = await self._connection.request(api_request)
-        # A returned POST response means the controller may have accepted the mutation,
-        # even if its body is incomplete. Clear both cached representations before
-        # validating the response so the next read cannot report pre-create state.
-        invalidate_traffic_route_caches(self._connection)
+        # A POST may commit before its response is lost. Clear both cache
+        # representations after every request attempt, before validating a returned body.
+        try:
+            response = await self._connection.request(api_request)
+        finally:
+            invalidate_traffic_route_caches(self._connection)
         result = response.get("data", response) if isinstance(response, dict) else response
         if isinstance(result, list):
             result = result[0] if result else {}
@@ -212,13 +213,13 @@ class TrafficRouteManager:
                 path=f"/trafficroutes/{route_id}",
                 data=payload,
             )
-            await self._connection.request(api_request)
+            # A PUT may commit before its response is lost; never retain a pre-update cache.
+            try:
+                await self._connection.request(api_request)
+            finally:
+                invalidate_traffic_route_caches(self._connection)
 
             logger.info("Traffic route updated")
-
-            # Invalidate cache
-            invalidate_traffic_route_caches(self._connection)
-
             return True
 
         except Exception as e:
@@ -262,12 +263,13 @@ class TrafficRouteManager:
                 path=f"/trafficroutes/{route_id}",
                 data=payload,
             )
-            await self._connection.request(api_request)
+            # A PUT may commit before its response is lost; never retain a pre-update cache.
+            try:
+                await self._connection.request(api_request)
+            finally:
+                invalidate_traffic_route_caches(self._connection)
 
             logger.info("Traffic route kill switch updated")
-
-            invalidate_traffic_route_caches(self._connection)
-
             return True
 
         except Exception as e:

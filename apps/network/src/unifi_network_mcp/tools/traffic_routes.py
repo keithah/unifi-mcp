@@ -13,53 +13,28 @@ from pydantic import Field, ValidationError
 
 from unifi_core.confirmation import create_preview, toggle_preview, update_preview
 from unifi_core.exceptions import UniFiNotFoundError
-from unifi_core.network.managers.traffic_route_manager import is_unicast_client_mac
 from unifi_core.network.models.traffic_routes import (
     TrafficRoute,
     from_controller,
     to_controller_create,
     to_controller_update,
 )
-from unifi_network_mcp.runtime import network_manager, server, traffic_route_manager
+from unifi_network_mcp.runtime import server, traffic_route_manager
 
 logger = logging.getLogger(__name__)
 
 
 async def _validate_internet_route_target(target_devices: Any, network_id: Any) -> Optional[Dict[str, Any]]:
-    """Return a validation error unless an INTERNET route is a single-client WAN route."""
-    if (
-        not isinstance(target_devices, list)
-        or len(target_devices) != 1
-        or not isinstance(target_devices[0], dict)
-        or target_devices[0].get("type") != "CLIENT"
-    ):
-        return {
-            "success": False,
-            "error": "INTERNET Traffic Routes require a single CLIENT target_devices entry.",
-        }
-    client_mac = target_devices[0].get("client_mac")
-    if not is_unicast_client_mac(client_mac):
-        return {
-            "success": False,
-            "error": "INTERNET Traffic Routes require a valid unicast client_mac for their CLIENT target.",
-        }
-    if not isinstance(network_id, str) or not network_id:
-        return {
-            "success": False,
-            "error": "INTERNET Traffic Routes require a target WAN network.",
-        }
+    """Translate canonical manager validation failures for the MCP response contract."""
     try:
-        target_network = await network_manager.get_network_details(network_id, force_refresh=True)
+        await traffic_route_manager.validate_internet_route_target(target_devices, network_id)
     except UniFiNotFoundError:
         return {"success": False, "error": "Target network was not found."}
-    except Exception as e:
-        logger.error("Unable to verify INTERNET Traffic Route target (%s)", type(e).__name__)
+    except ValueError as exc:
+        return {"success": False, "error": str(exc)}
+    except Exception as exc:
+        logger.error("Unable to verify INTERNET Traffic Route target (%s)", type(exc).__name__)
         return {"success": False, "error": "Unable to verify target network."}
-    if not isinstance(target_network, dict) or str(target_network.get("purpose", "")).lower() != "wan":
-        return {
-            "success": False,
-            "error": "INTERNET Traffic Routes are allowed only for a WAN network.",
-        }
     return None
 
 

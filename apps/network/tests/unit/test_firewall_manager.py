@@ -210,6 +210,16 @@ class TestLegacyTrafficRouteSafety:
         assert cache == {}
 
     @pytest.mark.asyncio
+    async def test_delete_invalidates_route_caches_when_response_is_lost(self, firewall_manager, mock_connection):
+        cache = _seed_both_traffic_route_caches(mock_connection)
+        mock_connection.request = AsyncMock(side_effect=RuntimeError("response lost"))
+
+        with pytest.raises(RuntimeError, match="response lost"):
+            await firewall_manager.delete_traffic_route("route-delete")
+
+        assert cache == {}
+
+    @pytest.mark.asyncio
     async def test_create_invalidates_both_route_cache_representations(self, firewall_manager, mock_connection):
         cache = _seed_both_traffic_route_caches(mock_connection)
         mock_connection.request = AsyncMock(return_value={"data": {"_id": "route-create"}})

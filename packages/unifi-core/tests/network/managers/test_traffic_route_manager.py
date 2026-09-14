@@ -384,6 +384,17 @@ class TestTrafficRouteCacheCoherence:
         assert cache == {}
 
     @pytest.mark.asyncio
+    async def test_create_invalidates_route_caches_when_response_is_lost(self) -> None:
+        manager, connection, _ = _manager()
+        cache = _seed_both_traffic_route_caches(connection)
+        connection.request = AsyncMock(side_effect=RuntimeError("response lost"))
+
+        with pytest.raises(RuntimeError, match="response lost"):
+            await manager.create_traffic_route({"matching_target": "DOMAIN"})
+
+        assert cache == {}
+
+    @pytest.mark.asyncio
     async def test_update_invalidates_both_route_cache_representations(self) -> None:
         manager, connection, _ = _manager()
         cache = _seed_both_traffic_route_caches(connection)
@@ -391,6 +402,18 @@ class TestTrafficRouteCacheCoherence:
         connection.request = AsyncMock(side_effect=[{"data": [route]}, {}])
 
         assert await manager.update_traffic_route("route-update", description="Updated") is True
+
+        assert cache == {}
+
+    @pytest.mark.asyncio
+    async def test_update_invalidates_route_caches_when_response_is_lost(self) -> None:
+        manager, connection, _ = _manager()
+        cache = _seed_both_traffic_route_caches(connection)
+        route = {"_id": "route-update", "matching_target": "DOMAIN", "enabled": True}
+        connection.request = AsyncMock(side_effect=[{"data": [route]}, RuntimeError("response lost")])
+
+        with pytest.raises(RuntimeError, match="response lost"):
+            await manager.update_traffic_route("route-update", description="Updated")
 
         assert cache == {}
 
@@ -406,6 +429,20 @@ class TestTrafficRouteCacheCoherence:
         assert cache == {}
 
     @pytest.mark.asyncio
+    async def test_toggle_invalidates_route_caches_when_response_is_lost(self) -> None:
+        manager, connection, _ = _manager()
+        cache = _seed_both_traffic_route_caches(connection)
+        route = {"_id": "route-toggle", "matching_target": "DOMAIN", "enabled": True}
+        connection.request = AsyncMock(
+            side_effect=[{"data": [route]}, {"data": [route]}, RuntimeError("response lost")]
+        )
+
+        with pytest.raises(RuntimeError, match="response lost"):
+            await manager.toggle_traffic_route("route-toggle")
+
+        assert cache == {}
+
+    @pytest.mark.asyncio
     async def test_kill_switch_update_invalidates_both_route_cache_representations(self) -> None:
         manager, connection, _ = _manager()
         cache = _seed_both_traffic_route_caches(connection)
@@ -413,5 +450,17 @@ class TestTrafficRouteCacheCoherence:
         connection.request = AsyncMock(side_effect=[{"data": [route]}, {}])
 
         assert await manager.update_kill_switch("route-kill-switch", enabled=True) is True
+
+        assert cache == {}
+
+    @pytest.mark.asyncio
+    async def test_kill_switch_update_invalidates_route_caches_when_response_is_lost(self) -> None:
+        manager, connection, _ = _manager()
+        cache = _seed_both_traffic_route_caches(connection)
+        route = {"_id": "route-kill-switch", "matching_target": "DOMAIN", "enabled": True}
+        connection.request = AsyncMock(side_effect=[{"data": [route]}, RuntimeError("response lost")])
+
+        with pytest.raises(RuntimeError, match="response lost"):
+            await manager.update_kill_switch("route-kill-switch", enabled=True)
 
         assert cache == {}
