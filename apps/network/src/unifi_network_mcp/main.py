@@ -17,6 +17,7 @@ from unifi_network_mcp.jobs import get_job_status, start_async_tool
 
 # Shared singletons
 from unifi_network_mcp.runtime import (
+    TOOLS_MANIFEST_PATH,
     config,
     connection_manager,
     event_manager,
@@ -50,6 +51,7 @@ async def main_async():
     from unifi_core.config_helpers import parse_config_bool
     from unifi_core.policy_gate import check_deprecated_env_vars, check_unknown_policy_env_vars
     from unifi_mcp_shared.bootstrap import assert_credentials_configured
+    from unifi_mcp_shared.code_mode import register_code_mode_tools
     from unifi_mcp_shared.server_lifecycle import apply_log_level, install_asyncio_exception_handler
     from unifi_mcp_shared.tool_registration import register_tools_for_mode
     from unifi_mcp_shared.transport import resolve_http_config, run_transports
@@ -86,6 +88,17 @@ async def main_async():
                 logger.info("Network event websocket disabled via config.")
 
         # ---- Register tools ----
+        def register_network_code_mode() -> None:
+            register_code_mode_tools(
+                server=server,
+                tool_decorator=_original_tool_decorator,
+                register_tool=register_tool,
+                manifest_path=TOOLS_MANIFEST_PATH,
+                prefix="unifi",
+                server_label="UniFi Network",
+                limits_config=config.server.get("code_mode"),
+            )
+
         await register_tools_for_mode(
             mode=UNIFI_TOOL_REGISTRATION_MODE,
             server=server,
@@ -100,6 +113,7 @@ async def main_async():
             config=config,
             logger=logger,
             support_bundle_handler=support_bundle_service.generate,
+            register_code_mode=register_network_code_mode,
         )
 
         # ---- Start transports ----

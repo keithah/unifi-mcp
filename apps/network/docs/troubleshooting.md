@@ -71,6 +71,12 @@ module, so later client lists and index results can include its domain tools.
 2. Use `unifi_execute` to call the tool, or set `UNIFI_TOOL_REGISTRATION_MODE=eager` to register all tools directly
 3. In `eager` mode, check whether `UNIFI_ENABLED_CATEGORIES` or `UNIFI_ENABLED_TOOLS` is limiting registration
 
+### Code Mode cannot find or call a domain tool
+
+In `code_mode`, use `unifi_code_search` to discover a tool and `unifi_code_get_schema` for its parameters. Do not use `unifi_tool_index`, and do not call a domain tool directly: direct domain calls are blocked by design. Put the permitted call inside `unifi_code_execute` as `await call_tool(name, params)`.
+
+Sandbox safety errors (for imports, process access, environment access, or network access) are intentional Code Mode boundaries, not controller failures. Controller errors occur only after an allowed inner tool reaches the controller; inspect that tool result and its configuration separately.
+
 ### Tool returns "permission denied" via unifi_execute
 
 **Cause:** A policy gate is denying the action at call time. Policy checks run

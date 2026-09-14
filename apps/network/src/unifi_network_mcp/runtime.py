@@ -38,7 +38,7 @@ from unifi_mcp_shared.support_bundle import (
 from unifi_network_mcp.bootstrap import UNIFI_TOOL_REGISTRATION_MODE, load_config, logger
 from unifi_network_mcp.support import NetworkSupportBundleAdapter
 
-_TOOLS_MANIFEST_PATH = Path(__file__).resolve().parent / "tools_manifest.json"
+TOOLS_MANIFEST_PATH = Path(__file__).resolve().parent / "tools_manifest.json"
 from unifi_core.network.managers.acl_manager import AclManager
 from unifi_core.network.managers.client_group_manager import ClientGroupManager
 from unifi_core.network.managers.client_manager import ClientManager
@@ -133,7 +133,7 @@ def get_server() -> UniFiMCPServer:
         debug=True,
         website_url=PROJECT_WEBSITE_URL,
         transport_security=transport_security,
-        tools_manifest_path=_TOOLS_MANIFEST_PATH,
+        tools_manifest_path=TOOLS_MANIFEST_PATH,
         mcp_content_mode=resolve_mcp_content_mode("network", config=get_config()),
     )
     configure_mcp_server_metadata(server, package_name="unifi-network-mcp", icon_family="network")
@@ -324,7 +324,7 @@ def get_support_bundle_service() -> SupportBundleService:
         transports=configured_transports(cfg.server),
         diagnostics_enabled=str(cfg.server.diagnostics.get("enabled", False)).lower() in {"true", "1", "yes"},
         response_redaction_enabled=should_redact_response_sensitive_fields("network", cfg),
-        manifest_reader=fixed_manifest_reader(_TOOLS_MANIFEST_PATH),
+        manifest_reader=fixed_manifest_reader(TOOLS_MANIFEST_PATH),
         enabled_categories=configured_filter(cfg.server.get("enabled_categories")),
         enabled_tools=configured_filter(cfg.server.get("enabled_tools")),
     )

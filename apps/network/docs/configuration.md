@@ -66,7 +66,7 @@ The server auto-detects whether your controller uses UniFi OS proxy paths (`/pro
 |----------|---------|-------------|
 | `UNIFI_MCP_LOG_LEVEL` | `INFO` | Logging level |
 | `UNIFI_AUTO_CONFIRM` | `false` | Skip preview-then-confirm for mutations (for automation) |
-| `UNIFI_TOOL_REGISTRATION_MODE` | `lazy` | Tool loading: `lazy`, `eager`, or `meta_only` |
+| `UNIFI_TOOL_REGISTRATION_MODE` | `lazy` | Tool loading: `lazy`, `eager`, `meta_only`, or Network-only `code_mode` |
 | `UNIFI_ENABLED_CATEGORIES` | — | Comma-separated tool categories to load (eager mode only) |
 | `UNIFI_ENABLED_TOOLS` | — | Comma-separated tool names to register (eager mode only) |
 | `CONFIG_PATH` | — | Path to a custom config YAML file |
@@ -96,6 +96,20 @@ execution, batch orchestration, and optional direct registration. See [MCP Disco
 | `lazy` (default) | Meta-tools plus `unifi_load_tools`; domain tools load on demand | Production LLM clients with limited context |
 | `eager` | Meta-tools plus all selected Network tools registered directly | Standard MCP clients and dev consoles |
 | `meta_only` | Core meta-tools only; use `unifi_execute` for operations | Maximum context control |
+| `code_mode` | Exactly `unifi_code_search`, `unifi_code_get_schema`, and `unifi_code_execute` | Bounded programs over Network domain tools |
+
+### Network Code Mode
+
+Set `UNIFI_TOOL_REGISTRATION_MODE=code_mode` to expose only the three Code Mode tools. Programs use `await call_tool(name, params)` to reach manifest-backed Network domain tools; direct domain calls are intentionally unavailable on the public MCP surface. The bridge retains normal policy gates and preview-then-confirm behavior, so it does not bypass authorization or confirmation.
+
+`unifi_code_execute` may perform a permitted mutation through an inner tool. Source is capped at 64,000 characters. The sandbox blocks imports (except `asyncio`), process access, environment access, and network access.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `UNIFI_NETWORK_CODE_MODE_MAX_DURATION_SECONDS` | `30` | Maximum program duration in seconds |
+| `UNIFI_NETWORK_CODE_MODE_MAX_MEMORY_BYTES` | `100000000` | Maximum sandbox memory bytes |
+| `UNIFI_NETWORK_CODE_MODE_MAX_TOOL_CALLS` | `25` | Maximum inner `call_tool` calls |
+| `UNIFI_NETWORK_CODE_MODE_MAX_OUTPUT_CHARS` | `16000` | Maximum serialized program output characters |
 
 ## HTTP Transport
 

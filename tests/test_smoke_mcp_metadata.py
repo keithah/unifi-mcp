@@ -22,6 +22,9 @@ SERVER_SPECS = _mod.SERVER_SPECS
 validate_icons = _mod.validate_icons
 validate_server_metadata = _mod.validate_server_metadata
 validate_meta_tool_surface = _mod.validate_meta_tool_surface
+validate_code_mode_surface = _mod.validate_code_mode_surface
+validate_mode_tools = _mod.validate_mode_tools
+registration_modes_for_server = _mod.registration_modes_for_server
 smoke_env = _mod.smoke_env
 selected_server_names = _mod.selected_server_names
 
@@ -34,10 +37,12 @@ EXPECTED_SURFACE = frozenset(
         "SERVER_SPECS",
         "ServerSpec",
         "parse_meta_tool_result",
+        "registration_modes_for_server",
         "selected_server_names",
         "smoke_env",
         "smoke_server",
         "validate_connection",
+        "validate_code_mode_surface",
         "validate_icons",
         "validate_index_catalog",
         "validate_meta_tool_surface",
@@ -139,6 +144,45 @@ def test_validate_meta_tool_surface_requires_every_meta_tool() -> None:
         validate_meta_tool_surface(NETWORK_SPEC, tools)
 
 
+def _code_mode_tools(*names: str):
+    return [
+        SimpleNamespace(
+            name=name,
+            description="Code Mode tool.",
+            inputSchema={"type": "object"},
+            annotations=SimpleNamespace(
+                readOnlyHint=name != "unifi_code_execute",
+                destructiveHint=name == "unifi_code_execute",
+            ),
+        )
+        for name in names
+    ]
+
+
+def test_validate_code_mode_surface_accepts_exact_three_tools() -> None:
+    validate_code_mode_surface(_code_mode_tools("unifi_code_search", "unifi_code_get_schema", "unifi_code_execute"))
+
+
+@pytest.mark.parametrize(
+    "tools",
+    [
+        _code_mode_tools("unifi_code_search", "unifi_code_get_schema", "unifi_code_execute", "unifi_tool_index"),
+        _code_mode_tools("unifi_code_search", "unifi_code_get_schema"),
+    ],
+)
+def test_validate_code_mode_surface_rejects_non_exact_public_surface(tools) -> None:
+    with pytest.raises(MetadataSmokeError, match="code_mode tools/list must equal"):
+        validate_code_mode_surface(tools)
+
+
+def test_code_mode_is_available_only_for_network() -> None:
+    assert registration_modes_for_server("network", "code_mode") == ["code_mode"]
+    with pytest.raises(MetadataSmokeError, match="only supported for network"):
+        registration_modes_for_server("protect", "code_mode")
+    assert registration_modes_for_server("network", "all") == ["lazy", "eager", "meta_only", "code_mode"]
+    assert registration_modes_for_server("protect", "all") == ["lazy", "eager", "meta_only"]
+
+
 def test_smoke_env_defaults_to_offline_metadata_credentials(monkeypatch) -> None:
     monkeypatch.setenv("UNIFI_HOST", "10.0.0.1")
     monkeypatch.setenv("UNIFI_NETWORK_HOST", "10.0.0.2")
@@ -167,13 +211,46 @@ def test_smoke_env_can_preserve_current_controller_env(monkeypatch) -> None:
 
 
 def test_selected_server_names_skips_access_for_default_offline_smoke() -> None:
-    assert selected_server_names(server="all", use_current_env=False) == ["network", "protect"]
+    assert selected_server_names(server="all", registration_mode="lazy", use_current_env=False) == [
+        "network",
+        "protect",
+    ]
 
 
 def test_selected_server_names_includes_access_with_current_env() -> None:
-    assert selected_server_names(server="all", use_current_env=True) == ["network", "protect", "access"]
+    assert selected_server_names(server="all", registration_mode="lazy", use_current_env=True) == [
+        "network",
+        "protect",
+        "access",
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("use_current_env", [False, True])
+async def test_main_async_scopes_all_code_mode_to_network_before_probes(monkeypatch, use_current_env: bool) -> None:
+    monkeypatch.setattr(
+        _mod,
+        "parse_args",
+        lambda: SimpleNamespace(
+            server="all",
+            use_current_env=use_current_env,
+            registration_mode="code_mode",
+            client_mode="auto",
+        ),
+    )
+    probes: list[tuple[str, str, bool]] = []
+
+    async def fake_smoke_server(spec, *, registration_mode, client_mode, use_current_env):
+        probes.append((spec.expected_name, registration_mode, use_current_env))
+        return "smoke output"
+
+    monkeypatch.setattr(_mod, "smoke_server", fake_smoke_server)
+
+    await _mod.main_async()
+
+    assert probes == [("unifi-network-mcp", "code_mode", use_current_env)]
 
 
 def test_selected_server_names_rejects_access_without_current_env() -> None:
     with pytest.raises(MetadataSmokeError, match="requires --use-current-env"):
-        selected_server_names(server="access", use_current_env=False)
+        selected_server_names(server="access", registration_mode="lazy", use_current_env=False)

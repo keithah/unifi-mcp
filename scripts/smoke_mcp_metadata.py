@@ -26,6 +26,7 @@ from unifi_mcp_shared.protocol import DEFAULT_MCP_PROTOCOL_REVISION
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REGISTRATION_MODES = ("lazy", "eager", "meta_only")
+CODE_MODE_TOOL_NAMES = frozenset({"unifi_code_search", "unifi_code_get_schema", "unifi_code_execute"})
 CLIENT_MODES = ("auto", "legacy")
 
 
@@ -196,8 +197,28 @@ def validate_meta_tool_surface(spec: ServerSpec, tools: list[Any]) -> None:
         raise MetadataSmokeError(f"{spec.expected_name}: missing meta-tools in tools/list: {missing}")
 
 
+def validate_code_mode_surface(tools: list[Any]) -> None:
+    """Validate Network Code Mode's deliberately minimal public surface."""
+    by_name = _tool_by_name(tools)
+    if set(by_name) != CODE_MODE_TOOL_NAMES:
+        raise MetadataSmokeError(
+            f"unifi-network-mcp: code_mode tools/list must equal {sorted(CODE_MODE_TOOL_NAMES)}, got {sorted(by_name)}"
+        )
+    for name in CODE_MODE_TOOL_NAMES:
+        validate_tool_schema(by_name[name], label=f"unifi-network-mcp:{name}")
+    annotations = _field(by_name["unifi_code_execute"], "annotations")
+    if _field(annotations, "readOnlyHint") is not False or _field(annotations, "destructiveHint") is not True:
+        raise MetadataSmokeError("unifi-network-mcp: code execute must be mutation-capable")
+
+
 def validate_mode_tools(spec: ServerSpec, tools: list[Any], *, registration_mode: str) -> None:
     """Validate registration-mode-specific standard tools/list behavior."""
+    if registration_mode == "code_mode":
+        if spec.expected_name != "unifi-network-mcp":
+            raise MetadataSmokeError("code_mode is only supported for network")
+        validate_code_mode_surface(tools)
+        return
+
     by_name = _tool_by_name(tools)
     load_tool_name = f"{spec.prefix}_load_tools"
     representative = by_name.get(spec.representative_tool)
@@ -332,7 +353,7 @@ def smoke_env(*, registration_mode: str, use_current_env: bool = False) -> dict[
     return env
 
 
-def selected_server_names(*, server: str, use_current_env: bool) -> list[str]:
+def selected_server_names(*, server: str, registration_mode: str, use_current_env: bool) -> list[str]:
     """Return the servers that can be smoke-tested for this invocation."""
     if server != "all":
         if server == "access" and not use_current_env:
@@ -342,9 +363,25 @@ def selected_server_names(*, server: str, use_current_env: bool) -> list[str]:
             )
         return [server]
 
+    if registration_mode == "code_mode":
+        return ["network"]
     if use_current_env:
         return list(SERVER_SPECS)
     return list(OFFLINE_SERVER_NAMES)
+
+
+def registration_modes_for_server(server_name: str, requested_mode: str) -> list[str]:
+    """Return the registration modes valid for one server smoke target."""
+    if requested_mode == "code_mode":
+        if server_name != "network":
+            raise MetadataSmokeError("code_mode is only supported for network")
+        return ["code_mode"]
+    if requested_mode == "all":
+        modes: list[str] = list(REGISTRATION_MODES)
+        if server_name == "network":
+            modes.append("code_mode")
+        return modes
+    return [requested_mode]
 
 
 async def smoke_server(
@@ -368,8 +405,16 @@ async def smoke_server(
         validate_connection(spec, client, client_mode=client_mode)
 
         tools_result = await client.list_tools()
-        validate_meta_tool_surface(spec, tools_result.tools)
         validate_mode_tools(spec, tools_result.tools, registration_mode=registration_mode)
+
+        if registration_mode == "code_mode":
+            return (
+                f"{spec.expected_name} client={client_mode} protocol={client.protocol_version} "
+                f"mode={registration_mode} {client.server_info.version} tools={len(tools_result.tools)} "
+                f"icons={len(client.server_info.icons or [])}"
+            )
+
+        validate_meta_tool_surface(spec, tools_result.tools)
 
         index_result = await client.call_tool(spec.index_tool, {"include_schemas": True})
         index_payload = parse_meta_tool_result(
@@ -439,9 +484,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--registration-mode",
-        choices=[*REGISTRATION_MODES, "all"],
+        choices=[*REGISTRATION_MODES, "code_mode", "all"],
         default="lazy",
-        help="Registration mode to smoke test. Use 'all' to cover lazy, eager, and meta_only.",
+        help="Registration mode to smoke test. Use 'all' to cover standard modes plus Network Code Mode.",
     )
     parser.add_argument(
         "--client-mode",
@@ -454,11 +499,14 @@ def parse_args() -> argparse.Namespace:
 
 async def main_async() -> None:
     args = parse_args()
-    server_names = selected_server_names(server=args.server, use_current_env=args.use_current_env)
-    registration_modes = list(REGISTRATION_MODES) if args.registration_mode == "all" else [args.registration_mode]
+    server_names = selected_server_names(
+        server=args.server,
+        registration_mode=args.registration_mode,
+        use_current_env=args.use_current_env,
+    )
     client_modes = list(CLIENT_MODES) if args.client_mode == "all" else [args.client_mode]
     for server_name in server_names:
-        for registration_mode in registration_modes:
+        for registration_mode in registration_modes_for_server(server_name, args.registration_mode):
             for client_mode in client_modes:
                 print(
                     await smoke_server(

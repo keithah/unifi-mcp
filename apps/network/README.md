@@ -5,7 +5,7 @@
   <img src="../../assets/hero-network.svg" alt="UniFi Network MCP Server" width="720">
 </p>
 
-MCP server exposing 194 UniFi Network Controller tools for LLMs, agents, and automation platforms. Query clients, devices, firewall rules, VLANs, VPNs, Traffic Flows, stats, and more — with safe-by-default permissions and preview-before-confirm for all mutations.
+MCP server exposing the generated UniFi Network Controller tool catalog for LLMs, agents, and automation platforms. Query clients, devices, firewall rules, VLANs, VPNs, Traffic Flows, stats, and more — with safe-by-default permissions and preview-before-confirm for all mutations.
 
 ## Install
 
@@ -99,6 +99,12 @@ For tool results that already provide structured output, `adaptive` is the defau
 The lazy-loading meta-tools (`*_tool_index`, `*_execute`, `*_batch`, `*_batch_status`, and lazy-only `*_load_tools`) remain content-only; they are not the pre-`2025-06-18` protocol category described above. For structured inner results, `*_execute` and `*_batch_status` expose one normalized JSON payload in `content` rather than a nested transport pair; content-only execute results remain unchanged. Response modes do not convert these meta-tools to `structuredContent`.
 
 Network also bounds two large source responses by default: `unifi_get_dashboard` uses `summary=true`, and `unifi_list_rogue_aps` returns a summarized page of at most 100 records. Pass `summary=false` to request the full selected dashboard or rogue-AP data.
+
+### Code Mode
+
+Set `UNIFI_TOOL_REGISTRATION_MODE=code_mode` to expose exactly `unifi_code_search`, `unifi_code_get_schema`, and `unifi_code_execute`. Code programs call manifest-backed Network tools with `await call_tool(name, params)`; direct domain calls are unavailable. `unifi_code_execute` can perform permitted mutations, but policy gates and preview-then-confirm still apply.
+
+The sandbox caps source at 64,000 characters and blocks imports (except `asyncio`), process access, environment access, and network access. Limits default to `UNIFI_NETWORK_CODE_MODE_MAX_DURATION_SECONDS=30`, `UNIFI_NETWORK_CODE_MODE_MAX_MEMORY_BYTES=100000000`, `UNIFI_NETWORK_CODE_MODE_MAX_TOOL_CALLS=25`, and `UNIFI_NETWORK_CODE_MODE_MAX_OUTPUT_CHARS=16000`.
 
 ### Sensitive response fields
 
@@ -232,7 +238,7 @@ Each device record now includes additional fields alongside the existing MAC, na
 
 - [Configuration](docs/configuration.md) — Full env var reference, YAML config, controller type detection
 - [Permissions](docs/permissions.md) — Permission system, category defaults, how to enable high-risk tools
-- [Tool Catalog](docs/tools.md) — All 194 tools organized by category
+- [Tool Catalog](docs/tools.md) — Generated domain catalog and registration modes
 - [Transports](docs/transports.md) — stdio, Streamable HTTP, and SSE setup
 - [Troubleshooting and support bundles](docs/troubleshooting.md) — Reviewed support evidence, connection issues, SSL, missing tools
 

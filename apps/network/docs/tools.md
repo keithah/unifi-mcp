@@ -1,17 +1,39 @@
 # Tool Catalog
 
-The UniFi Network MCP server exposes 194 tools, all prefixed with `unifi_`. Read-only tools are always available. Mutating tools are controlled by the [permission system](permissions.md).
+The generated `src/unifi_network_mcp/tools_manifest.json` is the authoritative catalog of UniFi Network domain tools, all prefixed with `unifi_`. In standard registration modes, read-only domain tools are available according to the selected mode. Mutating tools are controlled by the [permission system](permissions.md).
 
 Standard MCP clients should use `tools/list` for currently registered tools. For compact manifest-backed metadata in lazy workflows, call the `unifi_tool_index` compatibility meta-tool at runtime, or inspect `src/unifi_network_mcp/tools_manifest.json`. In `meta_only` mode, the index initially contains only meta-tools; executing a known domain tool lazily registers its module, so later index results can include those loaded tools.
 
 ## Meta-Tools
 
-These are always registered regardless of mode:
+These compatibility meta-tools are registered in standard modes:
 
 - `unifi_tool_index` — Discover tools (names+descriptions by default; use `category`/`search`/`include_schemas` to filter)
 - `unifi_execute` — Execute a tool by name (for lazy/meta_only modes)
 - `unifi_batch` — Execute multiple tools in parallel
 - `unifi_batch_status` — Check batch job status
+
+## Code Mode
+
+With `UNIFI_TOOL_REGISTRATION_MODE=code_mode`, `tools/list` contains exactly `unifi_code_search`, `unifi_code_get_schema`, and `unifi_code_execute`. Search and schema lookup discover manifest-backed Network domain tools; direct domain calls are blocked by design.
+
+To change an AP channel through the generic updater: call `unifi_code_search` with `{"query": "set AP radio channel"}`, then call `unifi_code_get_schema` with `{"names": ["unifi_update_device_radio"]}`. Execute a preview:
+
+```python
+await call_tool("unifi_update_device_radio", {
+    "mac_address": "aa:bb:cc:dd:ee:ff", "radio": "wifi0", "channel": 44
+})
+```
+
+Inspect the returned `requires_confirmation: true`, then execute the confirmed call:
+
+```python
+await call_tool("unifi_update_device_radio", {
+    "mac_address": "aa:bb:cc:dd:ee:ff", "radio": "wifi0", "channel": 44, "confirm": True
+})
+```
+
+Code Mode preserves policy gates and confirmation; it is not a bypass.
 
 ## Firewall (15 tools)
 
@@ -263,5 +285,6 @@ Gateway-wide security / NAT / connection-tracking settings (the controller's `us
 | `lazy` (default) | ~200 | Meta-tools registered; others load on first use |
 | `eager` | ~5,000 | All tools registered immediately |
 | `meta_only` | ~200 | Only meta-tools; use `unifi_execute` for everything |
+| `code_mode` | bounded | Exactly the three Code Mode tools; use `call_tool(name, params)` inside `unifi_code_execute` |
 
 Set via `UNIFI_TOOL_REGISTRATION_MODE`. Lazy mode is recommended for LLM clients.
