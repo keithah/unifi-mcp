@@ -449,10 +449,9 @@ async def toggle_traffic_route(
         success = await traffic_route_manager.toggle_traffic_route(route_id)
 
         if success:
-            new_state = "enabled" if not current_enabled else "disabled"
             return {
                 "success": True,
-                "message": f"Traffic route '{route_name}' toggled to {new_state}.",
+                "message": f"Traffic route '{route_name}' toggle submitted. Read route details to confirm its current state.",
             }
         else:
             return {
