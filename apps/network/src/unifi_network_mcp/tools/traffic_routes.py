@@ -12,7 +12,8 @@ from mcp.types import ToolAnnotations
 from pydantic import Field, ValidationError
 
 from unifi_core.confirmation import create_preview, toggle_preview, update_preview
-from unifi_core.exceptions import UniFiNotFoundError
+from unifi_core.exceptions import UniFiAuthError, UniFiNotFoundError
+from unifi_core.network.managers.traffic_route_manager import TrafficRoutePreflightError
 from unifi_core.network.models.traffic_routes import (
     TrafficRoute,
     from_controller,
@@ -30,6 +31,14 @@ async def _validate_internet_route_target(target_devices: Any, network_id: Any) 
         await traffic_route_manager.validate_internet_route_target(target_devices, network_id)
     except UniFiNotFoundError:
         return {"success": False, "error": "Target network was not found."}
+    except UniFiAuthError:
+        return {
+            "success": False,
+            "error": (
+                "INTERNET Traffic Routes require Network session authentication. "
+                "Configure UNIFI_NETWORK_USERNAME and UNIFI_NETWORK_PASSWORD."
+            ),
+        }
     except ValueError as exc:
         return {"success": False, "error": str(exc)}
     except Exception as exc:
@@ -135,6 +144,8 @@ async def create_traffic_route(
             "data": from_controller(created).model_dump(exclude_none=True),
             "message": f"Traffic route '{name}' created.",
         }
+    except TrafficRoutePreflightError as exc:
+        return {"success": False, "error": f"Failed to create traffic route: {exc}"}
     except Exception as e:
         logger.error("Traffic route create failed (%s)", type(e).__name__)
         return {

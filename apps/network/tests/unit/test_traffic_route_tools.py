@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from unifi_core.exceptions import UniFiNotFoundError
+from unifi_core.exceptions import UniFiAuthError, UniFiNotFoundError
+from unifi_core.network.managers.traffic_route_manager import TrafficRoutePreflightError
 
 os.environ.setdefault("UNIFI_HOST", "127.0.0.1")
 os.environ.setdefault("UNIFI_USERNAME", "test")
@@ -126,6 +127,23 @@ class TestCreateTrafficRoute:
         assert "response lost" not in result["error"]
 
     @pytest.mark.asyncio
+    async def test_confirmed_create_reports_preflight_failure_without_uncertainty(self):
+        mgr = _mock_manager()
+        mgr.create_traffic_route = AsyncMock(side_effect=TrafficRoutePreflightError("Invalid client target."))
+        with patch("unifi_network_mcp.tools.traffic_routes.traffic_route_manager", mgr):
+            from unifi_network_mcp.tools.traffic_routes import create_traffic_route
+
+            result = await create_traffic_route(
+                name="Desktop via WAN2",
+                matching_target="INTERNET",
+                network_id="wan-att",
+                target_devices=[{"type": "CLIENT", "client_mac": "aa:bb:cc:dd:ee:ff"}],
+                confirm=True,
+            )
+
+        assert result == {"success": False, "error": "Failed to create traffic route: Invalid client target."}
+
+    @pytest.mark.asyncio
     async def test_empty_target_devices_are_rejected_instead_of_widening_scope(self):
         mgr = _mock_manager()
         with patch("unifi_network_mcp.tools.traffic_routes.traffic_route_manager", mgr):
@@ -181,6 +199,25 @@ class TestCreateTrafficRoute:
         assert result["preview"]["will_create"]["matching_target"] == "INTERNET"
         assert result["preview"]["will_create"]["target_devices"] == target
         mgr.validate_internet_route_target.assert_awaited_once_with(target, "wan-att")
+        mgr.create_traffic_route.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_internet_route_preview_requires_network_session(self):
+        mgr = _mock_manager()
+        mgr.validate_internet_route_target = AsyncMock(side_effect=UniFiAuthError("key only"))
+        with patch("unifi_network_mcp.tools.traffic_routes.traffic_route_manager", mgr):
+            from unifi_network_mcp.tools.traffic_routes import create_traffic_route
+
+            result = await create_traffic_route(
+                name="Desktop via WAN2",
+                matching_target="INTERNET",
+                network_id="wan-att",
+                target_devices=[{"type": "CLIENT", "client_mac": "aa:bb:cc:dd:ee:ff"}],
+            )
+
+        assert result["success"] is False
+        assert "Network session authentication" in result["error"]
+        assert "key only" not in result["error"]
         mgr.create_traffic_route.assert_not_awaited()
 
     @pytest.mark.asyncio
