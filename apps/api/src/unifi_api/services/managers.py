@@ -115,7 +115,7 @@ def _build_network_managers() -> dict[str, Callable[..., Any]]:
             cm,
             DpiManager(cm, getattr(cm, "unifi_auth", None)),
         ),
-        "traffic_route_manager": lambda cm: TrafficRouteManager(cm),
+        "traffic_route_manager": lambda cm, *, network_manager=None: TrafficRouteManager(cm, network_manager),
         "usergroup_manager": lambda cm: UsergroupManager(cm),
         "vpn_manager": lambda cm: VpnManager(cm),
     }
@@ -512,6 +512,18 @@ class ManagerFactory:
             if cached is not None:
                 return cached
             instance = builder(cm, traffic_route_manager=traffic_route_manager)
+        elif product == "network" and attr_name == "traffic_route_manager":
+            network_manager = await self.get_domain_manager(
+                session,
+                controller_id,
+                product,
+                "network_manager",
+                site=site_scope,
+            )
+            cached = self._domain_cache.get(key)
+            if cached is not None:
+                return cached
+            instance = builder(cm, network_manager=network_manager)
         else:
             instance = builder(cm)
         self._domain_cache[key] = instance

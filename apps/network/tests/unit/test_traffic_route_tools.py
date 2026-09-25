@@ -107,6 +107,25 @@ class TestCreateTrafficRoute:
         )
 
     @pytest.mark.asyncio
+    async def test_confirmed_create_warns_before_retry_after_unknown_outcome(self):
+        mgr = _mock_manager()
+        mgr.create_traffic_route = AsyncMock(side_effect=TimeoutError("response lost"))
+        with patch("unifi_network_mcp.tools.traffic_routes.traffic_route_manager", mgr):
+            from unifi_network_mcp.tools.traffic_routes import create_traffic_route
+
+            result = await create_traffic_route(
+                name="YouTube via VPN",
+                matching_target="DOMAIN",
+                network_id="vpn-albania",
+                domains=[{"domain": "youtube.com"}],
+                confirm=True,
+            )
+
+        assert result["success"] is False
+        assert "List routes before retrying" in result["error"]
+        assert "response lost" not in result["error"]
+
+    @pytest.mark.asyncio
     async def test_empty_target_devices_are_rejected_instead_of_widening_scope(self):
         mgr = _mock_manager()
         with patch("unifi_network_mcp.tools.traffic_routes.traffic_route_manager", mgr):

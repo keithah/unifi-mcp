@@ -139,7 +139,10 @@ async def create_traffic_route(
         logger.error("Traffic route create failed (%s)", type(e).__name__)
         return {
             "success": False,
-            "error": "Failed to create traffic route. Check controller connectivity and permissions.",
+            "error": (
+                "Failed to create traffic route; it may have been created. "
+                "List routes before retrying, then check controller connectivity and permissions."
+            ),
         }
 
 

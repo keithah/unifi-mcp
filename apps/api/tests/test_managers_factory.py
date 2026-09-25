@@ -187,8 +187,10 @@ async def test_network_factory_wires_cached_traffic_route_manager_into_firewall_
         async with sm() as session:
             firewall_manager = await factory.get_domain_manager(session, cid, "network", "firewall_manager")
             traffic_route_manager = await factory.get_domain_manager(session, cid, "network", "traffic_route_manager")
+            network_manager = await factory.get_domain_manager(session, cid, "network", "network_manager")
 
         assert firewall_manager._traffic_route_manager is traffic_route_manager
+        assert traffic_route_manager._network_manager is network_manager
     finally:
         await factory.invalidate_controller(cid)
         await engine.dispose()
