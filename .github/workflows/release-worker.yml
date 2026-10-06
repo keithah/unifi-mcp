@@ -14,7 +14,7 @@ permissions:
 jobs:
   validate-tag:
     name: Validate release tag
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     outputs:
       version: ${{ steps.extract.outputs.version }}
     steps:
@@ -29,7 +29,7 @@ jobs:
 
   test:
     name: Run worker checks
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     needs: validate-tag
     steps:
       - uses: actions/checkout@v7
@@ -61,7 +61,7 @@ jobs:
 
   pack:
     name: Pack npm tarball
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     needs: [validate-tag, test]
     steps:
       - uses: actions/checkout@v7
@@ -88,7 +88,7 @@ jobs:
 
   publish-npm:
     name: Publish to npmjs.org
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     needs: [validate-tag, test]
     environment: npm-publish
     permissions:
@@ -129,7 +129,7 @@ jobs:
 
   github-release:
     name: Create GitHub Release
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     needs: [validate-tag, pack, publish-npm]
     permissions:
       contents: write
@@ -167,7 +167,7 @@ jobs:
 
   sync-version:
     name: Sync version to main
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     needs: [validate-tag, github-release]
     permissions:
       contents: write
