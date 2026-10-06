@@ -23,7 +23,7 @@ permissions:
 jobs:
   bump:
     name: Sync all version references
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
 
     steps:
     - name: Checkout repository

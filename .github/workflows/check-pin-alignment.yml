@@ -34,7 +34,7 @@ permissions:
 jobs:
   pin-alignment:
     name: "Pin alignment (PyPI install + smoke import)"
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     steps:
       - uses: actions/checkout@v7
         with:

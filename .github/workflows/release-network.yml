@@ -24,7 +24,7 @@ env:
 jobs:
   published-core-contract:
     name: Verify published Core dependency floor
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     steps:
       - uses: actions/checkout@v7
         with:
@@ -43,7 +43,7 @@ jobs:
   # ----------------------------------------------------------------------- 1
   test:
     name: Run unifi-network-mcp tests
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     steps:
       - uses: actions/checkout@v7
         with:
@@ -68,7 +68,7 @@ jobs:
   publish-pypi:
     name: Build wheel + publish to PyPI
     needs: [test, published-core-contract]
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     environment:
       name: pypi
       url: https://pypi.org/p/unifi-network-mcp
@@ -105,7 +105,7 @@ jobs:
   publish-docker:
     name: Build + push Docker image
     needs: [test, published-core-contract]
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     permissions:
       contents: read
       packages: write
@@ -169,7 +169,7 @@ jobs:
   github-release:
     name: Create GitHub Release
     needs: [publish-pypi, publish-docker]
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     permissions:
       contents: write
 
